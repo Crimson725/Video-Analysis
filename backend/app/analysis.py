@@ -53,6 +53,43 @@ def _persist_visualization(
         )
 
 
+def _build_local_visualization_path(
+    local_dir: str | None,
+    job_id: str,
+    frame_kind: FrameKind,
+    frame_id: int,
+) -> Path | None:
+    """Build and ensure local path for per-frame visualization output."""
+    if not local_dir:
+        return None
+    base = Path(local_dir) / job_id / frame_kind
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"frame_{frame_id}.jpg"
+
+
+def _build_frame_files(
+    job_id: str,
+    frame_id: int,
+    media_store: "MediaStore | None",
+) -> dict[str, str]:
+    """Build deterministic frame file references for local or object storage modes."""
+    if media_store is not None:
+        return {
+            "original": build_frame_key(job_id, "original", frame_id),
+            "segmentation": build_frame_key(job_id, "seg", frame_id),
+            "detection": build_frame_key(job_id, "det", frame_id),
+            "face": build_frame_key(job_id, "face", frame_id),
+        }
+
+    base_path = f"/static/{job_id}"
+    return {
+        "original": f"{base_path}/original/frame_{frame_id}.jpg",
+        "segmentation": f"{base_path}/seg/frame_{frame_id}.jpg",
+        "detection": f"{base_path}/det/frame_{frame_id}.jpg",
+        "face": f"{base_path}/face/frame_{frame_id}.jpg",
+    }
+
+
 def run_segmentation(
     image: np.ndarray,
     model: Any,
@@ -66,31 +103,28 @@ def run_segmentation(
     result = results[0]
 
     plot_img = result.plot()
-    local_path: Path | None = None
-    if local_dir:
-        base = Path(local_dir) / job_id / "seg"
-        base.mkdir(parents=True, exist_ok=True)
-        local_path = base / f"frame_{frame_id}.jpg"
+    local_path = _build_local_visualization_path(local_dir, job_id, "seg", frame_id)
     _persist_visualization(plot_img, local_path, media_store, job_id, "seg", frame_id)
 
     # Extract structured data
+    if result.masks is None or result.boxes is None:
+        return []
+
     items: list[dict] = []
-    if result.masks is not None and result.boxes is not None:
-        names = result.names or {}
-        for i, (mask_xy, cls_id) in enumerate(
-            zip(result.masks.xy, result.boxes.cls.cpu().numpy())
-        ):
-            class_name = names.get(int(cls_id), str(int(cls_id)))
-            polygon = [
-                [_to_int_coords(x), _to_int_coords(y)] for x, y in mask_xy
-            ]
-            items.append(
-                {
-                    "object_id": i + 1,
-                    "class": class_name,
-                    "mask_polygon": polygon,
-                }
-            )
+    names = result.names or {}
+    for object_id, (mask_xy, cls_id) in enumerate(
+        zip(result.masks.xy, result.boxes.cls.cpu().numpy()),
+        start=1,
+    ):
+        class_name = names.get(int(cls_id), str(int(cls_id)))
+        polygon = [[_to_int_coords(x), _to_int_coords(y)] for x, y in mask_xy]
+        items.append(
+            {
+                "object_id": object_id,
+                "class": class_name,
+                "mask_polygon": polygon,
+            }
+        )
     return items
 
 
@@ -107,35 +141,34 @@ def run_detection(
     result = results[0]
 
     plot_img = result.plot()
-    local_path: Path | None = None
-    if local_dir:
-        base = Path(local_dir) / job_id / "det"
-        base.mkdir(parents=True, exist_ok=True)
-        local_path = base / f"frame_{frame_id}.jpg"
+    local_path = _build_local_visualization_path(local_dir, job_id, "det", frame_id)
     _persist_visualization(plot_img, local_path, media_store, job_id, "det", frame_id)
 
     # Extract structured data
+    if result.boxes is None:
+        return []
+
     items: list[dict] = []
-    if result.boxes is not None:
-        names = result.names or {}
-        xyxy = result.boxes.xyxy.cpu().numpy()
-        conf = result.boxes.conf.cpu().numpy()
-        cls_ids = result.boxes.cls.cpu().numpy()
-        for i in range(len(xyxy)):
-            box = xyxy[i]
-            label = names.get(int(cls_ids[i]), str(int(cls_ids[i])))
-            items.append(
-                {
-                    "label": label,
-                    "confidence": float(conf[i]),
-                    "box": [
-                        _to_int_coords(box[0]),
-                        _to_int_coords(box[1]),
-                        _to_int_coords(box[2]),
-                        _to_int_coords(box[3]),
-                    ],
-                }
-            )
+    names = result.names or {}
+    xyxy = result.boxes.xyxy.cpu().numpy()
+    conf = result.boxes.conf.cpu().numpy()
+    cls_ids = result.boxes.cls.cpu().numpy()
+    for index, box in enumerate(xyxy):
+        score = conf[index]
+        cls_id = cls_ids[index]
+        label = names.get(int(cls_id), str(int(cls_id)))
+        items.append(
+            {
+                "label": label,
+                "confidence": float(score),
+                "box": [
+                    _to_int_coords(box[0]),
+                    _to_int_coords(box[1]),
+                    _to_int_coords(box[2]),
+                    _to_int_coords(box[3]),
+                ],
+            }
+        )
     return items
 
 
@@ -158,45 +191,32 @@ def run_face_recognition(
 
     vis_img = image.copy()
 
-    # Handle no detections
-    if boxes is None or probs is None:
-        local_path: Path | None = None
-        if local_dir:
-            base = Path(local_dir) / job_id / "face"
-            base.mkdir(parents=True, exist_ok=True)
-            local_path = base / f"frame_{frame_id}.jpg"
-        _persist_visualization(vis_img, local_path, media_store, job_id, "face", frame_id)
-        return []
-
     items: list[dict] = []
     face_id = 0
-    for i in range(len(boxes)):
-        prob = float(probs[i])
-        if prob < confidence_threshold:
-            continue
+    if boxes is not None and probs is not None:
+        for index, box in enumerate(boxes):
+            prob = float(probs[index])
+            if prob < confidence_threshold:
+                continue
 
-        x1 = _to_int_coords(boxes[i][0])
-        y1 = _to_int_coords(boxes[i][1])
-        x2 = _to_int_coords(boxes[i][2])
-        y2 = _to_int_coords(boxes[i][3])
+            x1 = _to_int_coords(box[0])
+            y1 = _to_int_coords(box[1])
+            x2 = _to_int_coords(box[2])
+            y2 = _to_int_coords(box[3])
 
-        # Draw bounding box on visualization
-        cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # Draw bounding box on visualization
+            cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-        face_id += 1
-        items.append(
-            {
-                "face_id": face_id,
-                "confidence": prob,
-                "coordinates": [x1, y1, x2, y2],
-            }
-        )
+            face_id += 1
+            items.append(
+                {
+                    "face_id": face_id,
+                    "confidence": prob,
+                    "coordinates": [x1, y1, x2, y2],
+                }
+            )
 
-    local_path: Path | None = None
-    if local_dir:
-        base = Path(local_dir) / job_id / "face"
-        base.mkdir(parents=True, exist_ok=True)
-        local_path = base / f"frame_{frame_id}.jpg"
+    local_path = _build_local_visualization_path(local_dir, job_id, "face", frame_id)
     _persist_visualization(vis_img, local_path, media_store, job_id, "face", frame_id)
 
     return items
@@ -267,21 +287,7 @@ def analyze_frame(
         image, models.face_detector, job_id, frame_id, local_dir, media_store
     )
 
-    if media_store is not None:
-        files = {
-            "original": build_frame_key(job_id, "original", frame_id),
-            "segmentation": build_frame_key(job_id, "seg", frame_id),
-            "detection": build_frame_key(job_id, "det", frame_id),
-            "face": build_frame_key(job_id, "face", frame_id),
-        }
-    else:
-        base_path = f"/static/{job_id}"
-        files = {
-            "original": f"{base_path}/original/frame_{frame_id}.jpg",
-            "segmentation": f"{base_path}/seg/frame_{frame_id}.jpg",
-            "detection": f"{base_path}/det/frame_{frame_id}.jpg",
-            "face": f"{base_path}/face/frame_{frame_id}.jpg",
-        }
+    files = _build_frame_files(job_id, frame_id, media_store)
 
     frame_payload: dict[str, Any] = {
         "frame_id": frame_id,
