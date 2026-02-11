@@ -1,5 +1,6 @@
 """Tests for app.analysis — frame analysis pipeline."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -361,3 +362,111 @@ class TestAnalyzeFrame:
         mock_seg.assert_called_once()
         mock_det.assert_called_once()
         mock_face.assert_called_once()
+
+    @patch("app.analysis.convert_json_to_toon", return_value=b"TOON_DATA")
+    @patch("app.analysis.run_face_recognition")
+    @patch("app.analysis.run_detection")
+    @patch("app.analysis.run_segmentation")
+    def test_persists_json_and_toon_for_contract_valid_payload(
+        self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
+    ):
+        mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
+        mock_det.return_value = [{"label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}]
+        mock_face.return_value = [{"face_id": 1, "confidence": 0.95, "coordinates": [5, 6, 7, 8]}]
+
+        media_store = MagicMock()
+        frame_data = {
+            "image": np.zeros((100, 100, 3), dtype=np.uint8),
+            "frame_id": 0,
+            "timestamp": "00:00:05.000",
+        }
+
+        analyze_frame(frame_data, mock_models, "job-1", static_dir, media_store=media_store)
+
+        assert media_store.upload_analysis_artifact.call_count == 2
+        first_call = media_store.upload_analysis_artifact.call_args_list[0]
+        second_call = media_store.upload_analysis_artifact.call_args_list[1]
+
+        assert first_call.args[0:3] == ("job-1", "json", 0)
+        json_payload = json.loads(first_call.args[3].decode("utf-8"))
+        assert json_payload["frame_id"] == 0
+        assert set(json_payload["files"].keys()) == {"original", "segmentation", "detection", "face"}
+        assert second_call.args[0:4] == ("job-1", "toon", 0, b"TOON_DATA")
+
+    @patch("app.analysis.convert_json_to_toon", return_value=b"TOON_DATA")
+    @patch("app.analysis.run_face_recognition")
+    @patch("app.analysis.run_detection")
+    @patch("app.analysis.run_segmentation")
+    def test_persists_json_for_multiple_frames_with_deterministic_keys(
+        self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
+    ):
+        mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
+        mock_det.return_value = [{"label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}]
+        mock_face.return_value = [{"face_id": 1, "confidence": 0.95, "coordinates": [5, 6, 7, 8]}]
+
+        media_store = MagicMock()
+        frame_0 = {
+            "image": np.zeros((100, 100, 3), dtype=np.uint8),
+            "frame_id": 0,
+            "timestamp": "00:00:01.000",
+        }
+        frame_1 = {
+            "image": np.zeros((100, 100, 3), dtype=np.uint8),
+            "frame_id": 1,
+            "timestamp": "00:00:02.000",
+        }
+
+        analyze_frame(frame_0, mock_models, "job-1", static_dir, media_store=media_store)
+        analyze_frame(frame_1, mock_models, "job-1", static_dir, media_store=media_store)
+
+        json_calls = [
+            c for c in media_store.upload_analysis_artifact.call_args_list if c.args[1] == "json"
+        ]
+        assert len(json_calls) == 2
+        assert json_calls[0].args[2] == 0
+        assert json_calls[1].args[2] == 1
+
+    @patch("app.analysis.run_face_recognition", return_value=[])
+    @patch("app.analysis.run_detection")
+    @patch("app.analysis.run_segmentation", return_value=[])
+    def test_invalid_payload_blocks_analysis_artifact_persistence(
+        self, _mock_seg, mock_det, _mock_face, mock_models, static_dir
+    ):
+        mock_det.return_value = [{"label": "car", "confidence": 0.9, "box": [1, 2, 3]}]
+
+        media_store = MagicMock()
+        frame_data = {
+            "image": np.zeros((100, 100, 3), dtype=np.uint8),
+            "frame_id": 0,
+            "timestamp": "00:00:05.000",
+        }
+
+        with pytest.raises(RuntimeError, match="contract validation failed"):
+            analyze_frame(frame_data, mock_models, "job-1", static_dir, media_store=media_store)
+
+        media_store.upload_analysis_artifact.assert_not_called()
+
+    @patch("app.analysis.convert_json_to_toon", side_effect=RuntimeError("toon conversion failed"))
+    @patch("app.analysis.run_face_recognition")
+    @patch("app.analysis.run_detection")
+    @patch("app.analysis.run_segmentation")
+    def test_conversion_failure_cleans_up_analysis_artifacts(
+        self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
+    ):
+        mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
+        mock_det.return_value = [{"label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}]
+        mock_face.return_value = [{"face_id": 1, "confidence": 0.95, "coordinates": [5, 6, 7, 8]}]
+
+        media_store = MagicMock()
+        frame_data = {
+            "image": np.zeros((100, 100, 3), dtype=np.uint8),
+            "frame_id": 3,
+            "timestamp": "00:00:05.000",
+        }
+
+        with pytest.raises(RuntimeError, match="Failed to persist analysis artifacts"):
+            analyze_frame(frame_data, mock_models, "job-7", static_dir, media_store=media_store)
+
+        delete_keys = [c.args[0] for c in media_store.delete_object.call_args_list]
+        assert "jobs/job-7/analysis/json/frame_3.json" in delete_keys
+        assert "jobs/job-7/analysis/toon/frame_3.toon" in delete_keys

@@ -1,0 +1,27 @@
+{
+  "Bucket": "replace-with-your-bucket",
+  "LifecycleConfiguration": {
+    "Rules": [
+      {
+        "ID": "AbortIncompleteMultipartUploads",
+        "Status": "Enabled",
+        "Filter": {
+          "Prefix": "jobs/"
+        },
+        "AbortIncompleteMultipartUpload": {
+          "DaysAfterInitiation": 1
+        }
+      },
+      {
+        "ID": "ExpireOldJobArtifacts",
+        "Status": "Enabled",
+        "Filter": {
+          "Prefix": "jobs/"
+        },
+        "Expiration": {
+          "Days": 7
+        }
+      }
+    ]
+  }
+}

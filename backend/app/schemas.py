@@ -30,7 +30,7 @@ class FaceItem(BaseModel):
 
 
 class FrameFiles(BaseModel):
-    """Paths to generated frame images."""
+    """Signed URLs to generated frame images stored in object storage."""
 
     original: str
     segmentation: str

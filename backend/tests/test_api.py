@@ -1,6 +1,6 @@
 """Tests for FastAPI API endpoints defined in app.main."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -22,10 +22,16 @@ async def client():
     with (
         patch("app.main.ModelLoader") as mock_model_loader,
         patch("app.main.cleanup") as mock_cleanup,
+        patch("app.main.get_media_store") as mock_get_media_store,
     ):
         mock_model_loader.get.return_value = MagicMock(name="MockModelLoader")
         mock_cleanup.setup_scheduler = MagicMock()
         mock_cleanup.shutdown_scheduler = MagicMock()
+        mock_store = MagicMock(name="MockMediaStore")
+        mock_store.sign_read_url.side_effect = (
+            lambda key, expires_in=None: f"https://signed.example/{key}?exp={expires_in or 3600}"
+        )
+        mock_get_media_store.return_value = mock_store
 
         from app.main import app
 
@@ -133,10 +139,10 @@ class TestGetResults:
                     "frame_id": 0,
                     "timestamp": "00:00:05.000",
                     "files": {
-                        "original": f"/static/{job_id}/original/frame_0.jpg",
-                        "segmentation": f"/static/{job_id}/seg/frame_0.jpg",
-                        "detection": f"/static/{job_id}/det/frame_0.jpg",
-                        "face": f"/static/{job_id}/face/frame_0.jpg",
+                        "original": f"jobs/{job_id}/frames/original/frame_0.jpg",
+                        "segmentation": f"jobs/{job_id}/frames/seg/frame_0.jpg",
+                        "detection": f"jobs/{job_id}/frames/det/frame_0.jpg",
+                        "face": f"jobs/{job_id}/frames/face/frame_0.jpg",
                     },
                     "analysis": {
                         "semantic_segmentation": [],
@@ -154,6 +160,7 @@ class TestGetResults:
         data = response.json()
         assert data["job_id"] == job_id
         assert len(data["frames"]) == 1
+        assert data["frames"][0]["files"]["original"].startswith("https://signed.example/jobs/")
 
     async def test_processing_job_returns_409(self, client):
         job_id = jobs.create_job()

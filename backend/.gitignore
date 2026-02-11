@@ -13,3 +13,11 @@ build/
 .vscode/
 *.swp
 *.swo
+
+# Local env/credentials
+.env
+.env.*
+
+# Node runtime for TOON conversion helper
+scripts/toon_runtime/node_modules/
+scripts/toon_runtime/package-lock.json

@@ -1,4 +1,4 @@
-"""Scheduled cleanup of old job artifacts."""
+"""Scheduled cleanup of temporary local job artifacts."""
 
 import logging
 import shutil
@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
 
 
-def cleanup_old_jobs(static_dir: str, max_age_hours: int = 24) -> None:
-    """Delete job directories in static/ older than max_age_hours based on mtime."""
-    base = Path(static_dir)
+def cleanup_old_jobs(temp_dir: str, max_age_hours: int = 24) -> None:
+    """Delete temporary job directories older than max_age_hours based on mtime."""
+    base = Path(temp_dir)
     if not base.exists():
         return
     cutoff = time.time() - (max_age_hours * 3600)
@@ -29,7 +29,7 @@ def cleanup_old_jobs(static_dir: str, max_age_hours: int = 24) -> None:
                     logger.warning("Failed to cleanup %s: %s", item, e)
 
 
-def setup_scheduler(static_dir: str) -> BackgroundScheduler:
+def setup_scheduler(temp_dir: str) -> BackgroundScheduler:
     """Create and start APScheduler with 24-hour cleanup interval."""
     global _scheduler
     _scheduler = BackgroundScheduler()
@@ -37,7 +37,7 @@ def setup_scheduler(static_dir: str) -> BackgroundScheduler:
         cleanup_old_jobs,
         "interval",
         hours=24,
-        args=[static_dir],
+        args=[temp_dir],
         id="cleanup_old_jobs",
     )
     _scheduler.start()

@@ -1,0 +1,8 @@
+{
+  "name": "video-analysis-toon-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@toon-format/toon": "*"
+  }
+}

@@ -1,9 +1,13 @@
 """Scene detection and keyframe extraction."""
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 from scenedetect import ContentDetector, detect
+
+if TYPE_CHECKING:
+    from app.storage import MediaStore
 
 
 def detect_scenes(video_path: str) -> list[tuple[float, float]]:
@@ -55,11 +59,27 @@ def extract_keyframes(
 
 
 def save_original_frames(
-    frames: list[dict], job_id: str, static_dir: str
+    frames: list[dict],
+    job_id: str,
+    local_dir: str,
+    media_store: "MediaStore | None" = None,
 ) -> None:
-    """Save each frame's image to static/{job_id}/original/frame_{N}.jpg"""
-    base = Path(static_dir) / job_id / "original"
+    """Save local original frames and optionally upload them to object storage."""
+    base = Path(local_dir) / job_id / "original"
     base.mkdir(parents=True, exist_ok=True)
     for f in frames:
-        path = base / f"frame_{f['frame_id']}.jpg"
-        cv2.imwrite(str(path), f["image"])
+        frame_id = int(f["frame_id"])
+        image = f["image"]
+        path = base / f"frame_{frame_id}.jpg"
+        cv2.imwrite(str(path), image)
+
+        if media_store is not None:
+            ok, encoded = cv2.imencode(".jpg", image)
+            if not ok:
+                raise RuntimeError(f"Failed to encode original frame {frame_id} as JPEG")
+            media_store.upload_frame_image(
+                job_id=job_id,
+                frame_kind="original",
+                frame_id=frame_id,
+                image_bytes=encoded.tobytes(),
+            )

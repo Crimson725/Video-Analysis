@@ -64,10 +64,10 @@ class TestJobResult:
                     frame_id=0,
                     timestamp="00:00:05.000",
                     files=FrameFiles(
-                        original="/static/abc/original/frame_0.jpg",
-                        segmentation="/static/abc/seg/frame_0.jpg",
-                        detection="/static/abc/det/frame_0.jpg",
-                        face="/static/abc/face/frame_0.jpg",
+                        original="https://example.com/jobs/abc/frames/original/frame_0.jpg?sig=1",
+                        segmentation="https://example.com/jobs/abc/frames/seg/frame_0.jpg?sig=1",
+                        detection="https://example.com/jobs/abc/frames/det/frame_0.jpg?sig=1",
+                        face="https://example.com/jobs/abc/frames/face/frame_0.jpg?sig=1",
                     ),
                     analysis=FrameAnalysis(
                         semantic_segmentation=[],
