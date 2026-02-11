@@ -4,3 +4,6 @@
 /.gemini
 /.opencode
 /openspec
+*.jpg
+.DS_Store
+/Test Videos

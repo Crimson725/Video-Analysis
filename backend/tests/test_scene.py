@@ -12,19 +12,19 @@ class TestDetectScenes:
     def test_returns_scene_tuples(self, mock_detect):
         # Each scene boundary is a (start_timecode, end_timecode) pair
         tc1_start = MagicMock()
-        tc1_start.seconds = 0.0
+        tc1_start.get_seconds.return_value = 0.0
         tc1_end = MagicMock()
-        tc1_end.seconds = 5.0
+        tc1_end.get_seconds.return_value = 5.0
 
         tc2_start = MagicMock()
-        tc2_start.seconds = 5.0
+        tc2_start.get_seconds.return_value = 5.0
         tc2_end = MagicMock()
-        tc2_end.seconds = 12.0
+        tc2_end.get_seconds.return_value = 12.0
 
         tc3_start = MagicMock()
-        tc3_start.seconds = 12.0
+        tc3_start.get_seconds.return_value = 12.0
         tc3_end = MagicMock()
-        tc3_end.seconds = 20.0
+        tc3_end.get_seconds.return_value = 20.0
 
         mock_detect.return_value = [
             (tc1_start, tc1_end),

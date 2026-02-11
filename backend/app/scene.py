@@ -11,8 +11,8 @@ def detect_scenes(video_path: str) -> list[tuple[float, float]]:
     scene_list = detect(video_path, ContentDetector())
     result: list[tuple[float, float]] = []
     for start_tc, end_tc in scene_list:
-        start_sec = start_tc.seconds
-        end_sec = end_tc.seconds
+        start_sec = start_tc.get_seconds()
+        end_sec = end_tc.get_seconds()
         result.append((start_sec, end_sec))
     return result
 
