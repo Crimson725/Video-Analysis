@@ -65,11 +65,41 @@ class FrameResult(BaseModel):
     analysis_artifacts: AnalysisArtifacts
 
 
+class SceneArtifacts(BaseModel):
+    """R2-backed scene-level artifacts."""
+
+    packet: str
+    narrative: str
+
+
+class SceneNarrativeResult(BaseModel):
+    """Generated scene-level narrative output."""
+
+    scene_id: int
+    start_sec: float
+    end_sec: float
+    narrative_paragraph: str
+    key_moments: list[str] = Field(default_factory=list, min_length=1)
+    artifacts: SceneArtifacts
+    trace: dict[str, str] | None = None
+
+
+class VideoSynopsisResult(BaseModel):
+    """Generated full-video synopsis output."""
+
+    synopsis: str
+    artifact: str
+    model: str
+    trace: dict[str, str] | None = None
+
+
 class JobResult(BaseModel):
     """Full analysis result for a job."""
 
     job_id: str
     frames: list[FrameResult]
+    scene_narratives: list[SceneNarrativeResult] = Field(default_factory=list)
+    video_synopsis: VideoSynopsisResult | None = None
 
 
 class JobStatus(BaseModel):

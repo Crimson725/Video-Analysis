@@ -168,6 +168,24 @@ class TestGetResults:
                     },
                 }
             ],
+            "scene_narratives": [
+                {
+                    "scene_id": 0,
+                    "start_sec": 0.0,
+                    "end_sec": 5.0,
+                    "narrative_paragraph": "Scene summary.",
+                    "key_moments": ["moment 1"],
+                    "artifacts": {
+                        "packet": f"jobs/{job_id}/scene/packets/scene_0.toon",
+                        "narrative": f"jobs/{job_id}/scene/narratives/scene_0.json",
+                    },
+                }
+            ],
+            "video_synopsis": {
+                "synopsis": "Video synopsis.",
+                "artifact": f"jobs/{job_id}/summary/synopsis.json",
+                "model": "gemini-2.5-flash-lite",
+            },
         }
         jobs.complete_job(job_id, payload)
 
@@ -180,6 +198,9 @@ class TestGetResults:
         assert data["frames"][0]["files"]["original"].startswith("https://signed.example/jobs/")
         assert data["frames"][0]["analysis_artifacts"]["json"].startswith("https://signed.example/jobs/")
         assert data["frames"][0]["analysis_artifacts"]["toon"].startswith("https://signed.example/jobs/")
+        assert data["scene_narratives"][0]["artifacts"]["packet"].startswith("https://signed.example/jobs/")
+        assert data["scene_narratives"][0]["artifacts"]["narrative"].startswith("https://signed.example/jobs/")
+        assert data["video_synopsis"]["artifact"].startswith("https://signed.example/jobs/")
 
     async def test_processing_job_returns_409(self, client):
         job_id = jobs.create_job()

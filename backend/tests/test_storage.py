@@ -11,7 +11,9 @@ from app.storage import (
     build_analysis_key,
     build_frame_key,
     build_r2_endpoint,
+    build_scene_key,
     build_source_video_key,
+    build_summary_key,
 )
 
 
@@ -36,6 +38,18 @@ class TestKeyBuilders:
 
     def test_build_r2_endpoint(self):
         assert build_r2_endpoint("abc") == "https://abc.r2.cloudflarestorage.com"
+
+    def test_build_scene_packet_key(self):
+        assert build_scene_key("job-123", "packet", 2) == "jobs/job-123/scene/packets/scene_2.toon"
+
+    def test_build_scene_narrative_key(self):
+        assert (
+            build_scene_key("job-123", "narrative", 2)
+            == "jobs/job-123/scene/narratives/scene_2.json"
+        )
+
+    def test_build_synopsis_key(self):
+        assert build_summary_key("job-123", "synopsis") == "jobs/job-123/summary/synopsis.json"
 
 
 class TestR2MediaStore:
@@ -140,6 +154,48 @@ class TestR2MediaStore:
             "get_object",
             Params={"Bucket": "bucket-1", "Key": "jobs/job-1/frames/original/frame_0.jpg"},
             ExpiresIn=600,
+        )
+
+    def test_upload_scene_packet_sets_toon_content_type(self):
+        mock_client = MagicMock()
+        store = self._make_store(mock_client)
+
+        object_key = store.upload_scene_artifact("job-9", "packet", 3, b"TOON_PAYLOAD")
+
+        assert object_key == "jobs/job-9/scene/packets/scene_3.toon"
+        mock_client.put_object.assert_called_once_with(
+            Bucket="bucket-1",
+            Key="jobs/job-9/scene/packets/scene_3.toon",
+            Body=b"TOON_PAYLOAD",
+            ContentType="application/x-toon",
+        )
+
+    def test_upload_scene_narrative_sets_json_content_type(self):
+        mock_client = MagicMock()
+        store = self._make_store(mock_client)
+
+        object_key = store.upload_scene_artifact("job-9", "narrative", 3, b'{"narrative":"ok"}')
+
+        assert object_key == "jobs/job-9/scene/narratives/scene_3.json"
+        mock_client.put_object.assert_called_once_with(
+            Bucket="bucket-1",
+            Key="jobs/job-9/scene/narratives/scene_3.json",
+            Body=b'{"narrative":"ok"}',
+            ContentType="application/json",
+        )
+
+    def test_upload_summary_sets_json_content_type(self):
+        mock_client = MagicMock()
+        store = self._make_store(mock_client)
+
+        object_key = store.upload_summary_artifact("job-9", "synopsis", b'{"synopsis":"ok"}')
+
+        assert object_key == "jobs/job-9/summary/synopsis.json"
+        mock_client.put_object.assert_called_once_with(
+            Bucket="bucket-1",
+            Key="jobs/job-9/summary/synopsis.json",
+            Body=b'{"synopsis":"ok"}',
+            ContentType="application/json",
         )
 
     def test_upload_frame_wraps_sdk_errors(self):

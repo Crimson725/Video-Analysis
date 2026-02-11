@@ -12,6 +12,9 @@ from app.schemas import (
     FrameResult,
     JobResult,
     SegmentationItem,
+    SceneArtifacts,
+    SceneNarrativeResult,
+    VideoSynopsisResult,
 )
 
 
@@ -85,3 +88,53 @@ class TestJobResult:
         assert result.job_id == "abc-123"
         assert len(result.frames) == 1
         assert result.frames[0].frame_id == 0
+
+    def test_scene_outputs_are_optional(self):
+        result = JobResult(
+            job_id="abc-123",
+            frames=[],
+        )
+        assert result.scene_narratives == []
+        assert result.video_synopsis is None
+
+    def test_scene_narrative_requires_key_moments(self):
+        with pytest.raises(ValidationError):
+            SceneNarrativeResult(
+                scene_id=0,
+                start_sec=0.0,
+                end_sec=3.0,
+                narrative_paragraph="test",
+                key_moments=[],
+                artifacts=SceneArtifacts(
+                    packet="jobs/j/scene/packets/scene_0.toon",
+                    narrative="jobs/j/scene/narratives/scene_0.json",
+                ),
+            )
+
+    def test_job_result_with_scene_outputs(self):
+        result = JobResult(
+            job_id="abc-123",
+            frames=[],
+            scene_narratives=[
+                SceneNarrativeResult(
+                    scene_id=0,
+                    start_sec=0.0,
+                    end_sec=3.0,
+                    narrative_paragraph="Scene summary.",
+                    key_moments=["moment 1"],
+                    artifacts=SceneArtifacts(
+                        packet="jobs/j/scene/packets/scene_0.toon",
+                        narrative="jobs/j/scene/narratives/scene_0.json",
+                    ),
+                    trace={"stage": "scene_narrative"},
+                )
+            ],
+            video_synopsis=VideoSynopsisResult(
+                synopsis="Combined synopsis.",
+                artifact="jobs/j/summary/synopsis.json",
+                model="gemini-2.5-flash-lite",
+                trace={"stage": "video_synopsis"},
+            ),
+        )
+        assert len(result.scene_narratives) == 1
+        assert result.video_synopsis is not None

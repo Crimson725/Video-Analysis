@@ -8,6 +8,8 @@ from typing import Any, Literal, Protocol
 
 FrameKind = Literal["original", "seg", "det", "face"]
 AnalysisArtifactKind = Literal["json", "toon"]
+SceneArtifactKind = Literal["packet", "narrative"]
+SummaryArtifactKind = Literal["synopsis"]
 
 _FRAME_PREFIX: dict[FrameKind, str] = {
     "original": "original",
@@ -29,6 +31,29 @@ _ANALYSIS_EXTENSION: dict[AnalysisArtifactKind, str] = {
 _ANALYSIS_CONTENT_TYPE: dict[AnalysisArtifactKind, str] = {
     "json": "application/json",
     "toon": "application/x-toon",
+}
+
+_SCENE_PREFIX: dict[SceneArtifactKind, str] = {
+    "packet": "packets",
+    "narrative": "narratives",
+}
+
+_SCENE_EXTENSION: dict[SceneArtifactKind, str] = {
+    "packet": "toon",
+    "narrative": "json",
+}
+
+_SCENE_CONTENT_TYPE: dict[SceneArtifactKind, str] = {
+    "packet": "application/x-toon",
+    "narrative": "application/json",
+}
+
+_SUMMARY_EXTENSION: dict[SummaryArtifactKind, str] = {
+    "synopsis": "json",
+}
+
+_SUMMARY_CONTENT_TYPE: dict[SummaryArtifactKind, str] = {
+    "synopsis": "application/json",
 }
 
 
@@ -63,6 +88,23 @@ class MediaStore(Protocol):
         payload: bytes,
     ) -> str:
         """Upload a generated analysis artifact and return the stored object key."""
+
+    def upload_scene_artifact(
+        self,
+        job_id: str,
+        artifact_kind: SceneArtifactKind,
+        scene_id: int,
+        payload: bytes,
+    ) -> str:
+        """Upload a generated scene artifact and return the stored object key."""
+
+    def upload_summary_artifact(
+        self,
+        job_id: str,
+        artifact_kind: SummaryArtifactKind,
+        payload: bytes,
+    ) -> str:
+        """Upload a generated summary artifact and return the stored object key."""
 
     def read_object(self, object_key: str) -> bytes:
         """Read object bytes for a key."""
@@ -103,6 +145,19 @@ def build_analysis_key(job_id: str, artifact_kind: AnalysisArtifactKind, frame_i
     artifact_dir = _ANALYSIS_PREFIX[artifact_kind]
     artifact_ext = _ANALYSIS_EXTENSION[artifact_kind]
     return f"jobs/{job_id}/analysis/{artifact_dir}/frame_{frame_id}.{artifact_ext}"
+
+
+def build_scene_key(job_id: str, artifact_kind: SceneArtifactKind, scene_id: int) -> str:
+    """Build deterministic key for a scene-level artifact object."""
+    artifact_dir = _SCENE_PREFIX[artifact_kind]
+    artifact_ext = _SCENE_EXTENSION[artifact_kind]
+    return f"jobs/{job_id}/scene/{artifact_dir}/scene_{scene_id}.{artifact_ext}"
+
+
+def build_summary_key(job_id: str, artifact_kind: SummaryArtifactKind) -> str:
+    """Build deterministic key for a summary artifact object."""
+    artifact_ext = _SUMMARY_EXTENSION[artifact_kind]
+    return f"jobs/{job_id}/summary/{artifact_kind}.{artifact_ext}"
 
 
 def build_r2_endpoint(account_id: str) -> str:
@@ -182,6 +237,27 @@ class R2MediaStore:
     ) -> str:
         object_key = build_analysis_key(job_id, artifact_kind, frame_id)
         self._put_object(object_key, payload, _ANALYSIS_CONTENT_TYPE[artifact_kind])
+        return object_key
+
+    def upload_scene_artifact(
+        self,
+        job_id: str,
+        artifact_kind: SceneArtifactKind,
+        scene_id: int,
+        payload: bytes,
+    ) -> str:
+        object_key = build_scene_key(job_id, artifact_kind, scene_id)
+        self._put_object(object_key, payload, _SCENE_CONTENT_TYPE[artifact_kind])
+        return object_key
+
+    def upload_summary_artifact(
+        self,
+        job_id: str,
+        artifact_kind: SummaryArtifactKind,
+        payload: bytes,
+    ) -> str:
+        object_key = build_summary_key(job_id, artifact_kind)
+        self._put_object(object_key, payload, _SUMMARY_CONTENT_TYPE[artifact_kind])
         return object_key
 
     def read_object(self, object_key: str) -> bytes:

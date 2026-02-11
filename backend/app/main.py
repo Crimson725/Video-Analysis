@@ -12,7 +12,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import analysis, cleanup, jobs, scene
+from app import analysis, cleanup, jobs, scene, video_understanding
 from app.config import Settings
 from app.models import ModelLoader
 from app.schemas import JobResult, JobStatus
@@ -50,6 +50,14 @@ def _startup_validate_settings() -> None:
             "Video processing and signed result URLs will fail until configured.",
             ", ".join(missing),
         )
+    if SETTINGS.enable_scene_understanding_pipeline:
+        missing_llm = SETTINGS.missing_llm_fields()
+        if missing_llm:
+            logger.warning(
+                "Scene understanding pipeline enabled with missing settings: %s. "
+                "Gemini client may be unavailable and runtime will use fallback generation.",
+                ", ".join(missing_llm),
+            )
 
 
 def _extract_source_extension(filename: str | None) -> str:
@@ -101,6 +109,8 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
     payload: dict[str, Any] = {
         "job_id": result_payload.get("job_id"),
         "frames": [],
+        "scene_narratives": [],
+        "video_synopsis": None,
     }
     for frame in result_payload.get("frames", []):
         files: dict[str, str] = {}
@@ -125,13 +135,43 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
                 "analysis_artifacts": analysis_artifacts,
             }
         )
+
+    for scene_narrative in result_payload.get("scene_narratives", []):
+        raw_artifacts = scene_narrative.get("artifacts", {})
+        payload["scene_narratives"].append(
+            {
+                "scene_id": scene_narrative.get("scene_id"),
+                "start_sec": scene_narrative.get("start_sec"),
+                "end_sec": scene_narrative.get("end_sec"),
+                "narrative_paragraph": scene_narrative.get("narrative_paragraph", ""),
+                "key_moments": scene_narrative.get("key_moments", []),
+                "artifacts": {
+                    "packet": _to_signed_url_if_needed(raw_artifacts.get("packet"), media_store),
+                    "narrative": _to_signed_url_if_needed(raw_artifacts.get("narrative"), media_store),
+                },
+                "trace": scene_narrative.get("trace"),
+            }
+        )
+
+    raw_summary = result_payload.get("video_synopsis")
+    if isinstance(raw_summary, dict):
+        payload["video_synopsis"] = {
+            "synopsis": raw_summary.get("synopsis", ""),
+            "artifact": _to_signed_url_if_needed(raw_summary.get("artifact"), media_store),
+            "model": raw_summary.get("model", ""),
+            "trace": raw_summary.get("trace"),
+        }
     return payload
 
 
-def _collect_required_artifact_keys(job_id: str, frame_results: list[dict[str, Any]], source_key: str) -> set[str]:
+def _collect_required_artifact_keys(
+    job_id: str,
+    result_payload: dict[str, Any],
+    source_key: str,
+) -> set[str]:
     """Collect required R2 object keys that must verify before job completion."""
     required: set[str] = {source_key}
-    for frame in frame_results:
+    for frame in result_payload.get("frames", []):
         frame_id = frame.get("frame_id")
         for object_key in frame.get("files", {}).values():
             if isinstance(object_key, str) and object_key.startswith("jobs/"):
@@ -153,6 +193,30 @@ def _collect_required_artifact_keys(job_id: str, frame_results: list[dict[str, A
                     frame_id,
                     object_key,
                 )
+    for scene_narrative in result_payload.get("scene_narratives", []):
+        scene_id = scene_narrative.get("scene_id")
+        for object_key in scene_narrative.get("artifacts", {}).values():
+            if isinstance(object_key, str) and object_key.startswith("jobs/"):
+                required.add(object_key)
+            else:
+                logger.warning(
+                    "upload.verify.invalid_scene_key job_id=%s scene_id=%s value=%s",
+                    job_id,
+                    scene_id,
+                    object_key,
+                )
+
+    video_synopsis = result_payload.get("video_synopsis")
+    if isinstance(video_synopsis, dict):
+        object_key = video_synopsis.get("artifact")
+        if isinstance(object_key, str) and object_key.startswith("jobs/"):
+            required.add(object_key)
+        else:
+            logger.warning(
+                "upload.verify.invalid_synopsis_key job_id=%s value=%s",
+                job_id,
+                object_key,
+            )
     return required
 
 
@@ -250,10 +314,23 @@ def process_video(
             )
             frame_results.append(result)
 
-        required_keys = _collect_required_artifact_keys(job_id, frame_results, source_key)
+        scene_outputs: dict[str, Any] = {
+            "scene_narratives": [],
+            "video_synopsis": None,
+        }
+        if SETTINGS.enable_scene_understanding_pipeline:
+            scene_outputs = video_understanding.run_scene_understanding_pipeline(
+                job_id=job_id,
+                scenes=scenes,
+                frame_results=frame_results,
+                settings=SETTINGS,
+                media_store=media_store,
+            )
+
+        payload = {"job_id": job_id, "frames": frame_results, **scene_outputs}
+        required_keys = _collect_required_artifact_keys(job_id, payload, source_key)
         _verify_required_artifacts(media_store, job_id, required_keys)
 
-        payload = {"job_id": job_id, "frames": frame_results}
         jobs.complete_job(job_id, payload)
     except (MediaStoreConfigError, MediaStoreError) as e:
         logger.exception("Media storage failed for job %s", job_id)
