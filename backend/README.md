@@ -26,6 +26,7 @@ uv run python run.py
 ## API Endpoints
 
 - `POST /analyze-video` - Upload video, returns `job_id` (HTTP 202)
+  - Optional form field: `cleanup_local_video_after_upload` (`true`/`false`) to override local source cleanup policy per request.
 - `GET /status/{job_id}` - Poll job status
 - `GET /results/{job_id}` - Get analysis JSON with signed R2 file URLs when completed
 
@@ -41,6 +42,7 @@ Set the following environment variables before running the API:
 - `R2_RETENTION_DAYS` - Intended retention period for job artifacts (default `7`)
 - `R2_ABORT_MULTIPART_DAYS` - Intended incomplete multipart abort window (default `1`)
 - `TEMP_MEDIA_DIR` - Local temp directory for transient processing files (default `backend/tmp_media`)
+- `CLEANUP_LOCAL_VIDEO_AFTER_UPLOAD_DEFAULT` - Default local source cleanup policy after verified upload (`true` by default)
 
 Startup logs include validation for missing required R2 settings.
 
@@ -62,8 +64,17 @@ Per-frame analysis artifacts are stored in deterministic keys under the same job
 
 This keeps JSON/TOON outputs linked to:
 
-- source video: `jobs/<job_id>/input/source.mp4`
+- source video: `jobs/<job_id>/input/source.<ext>`
 - frame images: `jobs/<job_id>/frames/{original|seg|det|face}/frame_<N>.jpg`
+
+## Local Staging and Cleanup Policy
+
+- Uploads are staged locally first at `TEMP_MEDIA_DIR/<job_id>/input/source.<ext>`.
+- Source video is deleted locally only after R2 upload verification succeeds and effective policy allows cleanup.
+- Effective cleanup policy is resolved as:
+  1. request override `cleanup_local_video_after_upload` (if provided)
+  2. fallback to `CLEANUP_LOCAL_VIDEO_AFTER_UPLOAD_DEFAULT`
+- When cleanup is disabled, the scheduler preserves the retained source video and removes stale non-source artifacts.
 
 ## TOON Conversion Runtime
 

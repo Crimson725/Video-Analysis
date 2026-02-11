@@ -5,7 +5,13 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.cleanup import cleanup_old_jobs, setup_scheduler, shutdown_scheduler
+from app.cleanup import (
+    RETAIN_SOURCE_MARKER,
+    cleanup_old_jobs,
+    mark_job_for_source_retention,
+    setup_scheduler,
+    shutdown_scheduler,
+)
 
 
 class TestCleanupOldJobs:
@@ -44,6 +50,35 @@ class TestCleanupOldJobs:
         cleanup_old_jobs(static_dir, max_age_hours=24)
         assert not old_dir.exists()
         assert recent_dir.exists()
+
+    def test_retained_source_video_is_preserved(self, static_dir):
+        job_dir = Path(static_dir) / "job-keep"
+        source_dir = job_dir / "input"
+        source_dir.mkdir(parents=True)
+        source_file = source_dir / "source.mp4"
+        source_file.write_bytes(b"video")
+        (job_dir / "det").mkdir()
+        (job_dir / "det" / "frame_0.jpg").write_bytes(b"frame")
+        mark_job_for_source_retention(static_dir, "job-keep")
+
+        old_time = time.time() - (25 * 3600)
+        os.utime(job_dir, (old_time, old_time))
+
+        cleanup_old_jobs(static_dir, max_age_hours=24)
+
+        assert source_file.exists()
+        assert (job_dir / RETAIN_SOURCE_MARKER).exists()
+        assert not (job_dir / "det").exists()
+
+    def test_retention_marker_without_source_is_removed(self, static_dir):
+        job_dir = Path(static_dir) / "job-without-source"
+        job_dir.mkdir(parents=True)
+        mark_job_for_source_retention(static_dir, "job-without-source")
+        old_time = time.time() - (25 * 3600)
+        os.utime(job_dir, (old_time, old_time))
+
+        cleanup_old_jobs(static_dir, max_age_hours=24)
+        assert not job_dir.exists()
 
 
 class TestScheduler:

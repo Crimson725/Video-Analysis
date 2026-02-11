@@ -292,6 +292,10 @@ def analyze_frame(
             "object_detection": det_items,
             "face_recognition": face_items,
         },
+        "analysis_artifacts": {
+            "json": build_analysis_key(job_id, "json", frame_id),
+            "toon": build_analysis_key(job_id, "toon", frame_id),
+        },
     }
 
     if media_store is not None:

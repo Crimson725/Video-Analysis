@@ -19,6 +19,12 @@ class TestKeyBuilders:
     def test_build_source_video_key(self):
         assert build_source_video_key("job-123") == "jobs/job-123/input/source.mp4"
 
+    def test_build_source_video_key_with_custom_extension(self):
+        assert build_source_video_key("job-123", "mov") == "jobs/job-123/input/source.mov"
+
+    def test_build_source_video_key_normalizes_extension(self):
+        assert build_source_video_key("job-123", ".MP4") == "jobs/job-123/input/source.mp4"
+
     def test_build_frame_key(self):
         assert build_frame_key("job-123", "seg", 42) == "jobs/job-123/frames/seg/frame_42.jpg"
 
@@ -64,6 +70,20 @@ class TestR2MediaStore:
             "bucket-1",
             "jobs/job-7/input/source.mp4",
             ExtraArgs={"ContentType": "video/mp4"},
+        )
+
+    def test_upload_source_video_uses_extension_from_input(self):
+        mock_client = MagicMock()
+        store = self._make_store(mock_client)
+
+        object_key = store.upload_source_video("job-7", "/tmp/video.mov", "video/quicktime", source_extension="mov")
+
+        assert object_key == "jobs/job-7/input/source.mov"
+        mock_client.upload_file.assert_called_once_with(
+            "/tmp/video.mov",
+            "bucket-1",
+            "jobs/job-7/input/source.mov",
+            ExtraArgs={"ContentType": "video/quicktime"},
         )
 
     def test_upload_frame_image_sets_jpeg_content_type(self):
@@ -155,3 +175,20 @@ class TestR2MediaStore:
             Bucket="bucket-1",
             Key="jobs/job-1/analysis/toon/frame_0.toon",
         )
+
+    def test_verify_object_true_when_head_succeeds(self):
+        mock_client = MagicMock()
+        store = self._make_store(mock_client)
+
+        assert store.verify_object("jobs/job-1/frames/original/frame_0.jpg") is True
+        mock_client.head_object.assert_called_once_with(
+            Bucket="bucket-1",
+            Key="jobs/job-1/frames/original/frame_0.jpg",
+        )
+
+    def test_verify_object_false_when_head_fails(self):
+        mock_client = MagicMock()
+        mock_client.head_object.side_effect = RuntimeError("missing")
+        store = self._make_store(mock_client)
+
+        assert store.verify_object("jobs/job-1/frames/original/frame_0.jpg") is False

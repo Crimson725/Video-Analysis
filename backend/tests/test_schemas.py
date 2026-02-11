@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas import (
+    AnalysisArtifacts,
     DetectionItem,
     FaceItem,
     FrameAnalysis,
@@ -73,6 +74,10 @@ class TestJobResult:
                         semantic_segmentation=[],
                         object_detection=[],
                         face_recognition=[],
+                    ),
+                    analysis_artifacts=AnalysisArtifacts(
+                        json="https://example.com/jobs/abc/analysis/json/frame_0.json?sig=1",
+                        toon="https://example.com/jobs/abc/analysis/toon/frame_0.toon?sig=1",
                     ),
                 )
             ],

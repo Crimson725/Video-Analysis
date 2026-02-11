@@ -57,6 +57,19 @@ class TestAnalyzeVideoHappyPath:
         assert isinstance(data["job_id"], str)
         assert len(data["job_id"]) > 0
 
+    async def test_cleanup_override_false_is_persisted(self, client):
+        response = await client.post(
+            "/analyze-video",
+            data={"cleanup_local_video_after_upload": "false"},
+            files={"file": ("test_video.mp4", b"fake video content", "video/mp4")},
+        )
+
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+        job = jobs.get_job(job_id)
+        assert job is not None
+        assert job["cleanup_local_video_after_upload"] is False
+
 
 # ---------------------------------------------------------------------------
 # 5.3 — POST /analyze-video error paths
@@ -149,6 +162,10 @@ class TestGetResults:
                         "object_detection": [],
                         "face_recognition": [],
                     },
+                    "analysis_artifacts": {
+                        "json": f"jobs/{job_id}/analysis/json/frame_0.json",
+                        "toon": f"jobs/{job_id}/analysis/toon/frame_0.toon",
+                    },
                 }
             ],
         }
@@ -161,6 +178,8 @@ class TestGetResults:
         assert data["job_id"] == job_id
         assert len(data["frames"]) == 1
         assert data["frames"][0]["files"]["original"].startswith("https://signed.example/jobs/")
+        assert data["frames"][0]["analysis_artifacts"]["json"].startswith("https://signed.example/jobs/")
+        assert data["frames"][0]["analysis_artifacts"]["toon"].startswith("https://signed.example/jobs/")
 
     async def test_processing_job_returns_409(self, client):
         job_id = jobs.create_job()

@@ -355,6 +355,8 @@ class TestAnalyzeFrame:
         assert "semantic_segmentation" in result["analysis"]
         assert "object_detection" in result["analysis"]
         assert "face_recognition" in result["analysis"]
+        assert result["analysis_artifacts"]["json"] == "jobs/job-1/analysis/json/frame_0.json"
+        assert result["analysis_artifacts"]["toon"] == "jobs/job-1/analysis/toon/frame_0.toon"
         assert len(result["analysis"]["semantic_segmentation"]) == 1
         assert len(result["analysis"]["object_detection"]) == 1
         assert len(result["analysis"]["face_recognition"]) == 1
@@ -391,6 +393,7 @@ class TestAnalyzeFrame:
         json_payload = json.loads(first_call.args[3].decode("utf-8"))
         assert json_payload["frame_id"] == 0
         assert set(json_payload["files"].keys()) == {"original", "segmentation", "detection", "face"}
+        assert set(json_payload["analysis_artifacts"].keys()) == {"json", "toon"}
         assert second_call.args[0:4] == ("job-1", "toon", 0, b"TOON_DATA")
 
     @patch("app.analysis.convert_json_to_toon", return_value=b"TOON_DATA")

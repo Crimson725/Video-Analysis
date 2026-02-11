@@ -25,6 +25,10 @@ def _sample_frame_payload(job_id: str, frame_id: int) -> dict:
             "object_detection": [],
             "face_recognition": [],
         },
+        "analysis_artifacts": {
+            "json": f"jobs/{job_id}/analysis/json/frame_{frame_id}.json",
+            "toon": f"jobs/{job_id}/analysis/toon/frame_{frame_id}.toon",
+        },
     }
 
 

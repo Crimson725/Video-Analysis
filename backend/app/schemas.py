@@ -46,6 +46,15 @@ class FrameAnalysis(BaseModel):
     face_recognition: list[FaceItem] = []
 
 
+class AnalysisArtifacts(BaseModel):
+    """R2-backed per-frame analysis artifacts."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    json_artifact: str = Field(..., alias="json")
+    toon: str
+
+
 class FrameResult(BaseModel):
     """Complete result for a single extracted frame."""
 
@@ -53,6 +62,7 @@ class FrameResult(BaseModel):
     timestamp: str
     files: FrameFiles
     analysis: FrameAnalysis
+    analysis_artifacts: AnalysisArtifacts
 
 
 class JobResult(BaseModel):
