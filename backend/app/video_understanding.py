@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import operator
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypedDict
@@ -204,14 +205,41 @@ class GeminiSceneLLMClient:
                 return "\n".join(blocks)
         return str(response)
 
+    @staticmethod
+    def _parse_scene_json(text: str) -> dict[str, Any]:
+        """Parse scene JSON from raw/fenced/wrapped model output."""
+        candidates: list[str] = []
+        stripped = text.strip()
+        if stripped:
+            candidates.append(stripped)
+
+        fenced_blocks = re.findall(
+            r"```(?:json)?\s*([\s\S]*?)\s*```",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        candidates.extend(block.strip() for block in fenced_blocks if block.strip())
+
+        first_brace = stripped.find("{")
+        last_brace = stripped.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            candidates.append(stripped[first_brace : last_brace + 1].strip())
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+
+        raise ValueError("Gemini scene narrative response is not a JSON object")
+
     def generate_scene_narrative(self, prompt: str, scene_packet: ScenePacket) -> dict[str, Any]:
         del scene_packet
         response = self._scene_model.invoke(prompt)
         text = self._to_text(response).strip()
-        parsed = json.loads(text)
-        if not isinstance(parsed, dict):
-            raise ValueError("Gemini scene narrative response is not a JSON object")
-        return parsed
+        return self._parse_scene_json(text)
 
     def refine_synopsis(
         self,

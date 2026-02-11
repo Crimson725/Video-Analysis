@@ -39,6 +39,11 @@ def _load_env_file(path: Path) -> None:
             os.environ.setdefault(key, value)
 
 
+def _read_env(name: str, default: str = "") -> str:
+    """Return a trimmed environment variable value."""
+    return os.getenv(name, default).strip()
+
+
 # ---------------------------------------------------------------------------
 # 2.1 — Test video path fixture (session-scoped, skips if missing)
 # ---------------------------------------------------------------------------
@@ -139,3 +144,60 @@ def r2_cleanup_keys(r2_store):
 def r2_test_job_id():
     """Return a unique job id for R2 integration artifact tests."""
     return f"r2-itest-{uuid4().hex}"
+
+
+@pytest.fixture(scope="session")
+def gemini_api_key():
+    """Return Gemini API key for external-API integration tests, or skip."""
+    key = _read_env("GOOGLE_API_KEY")
+    if not key:
+        pytest.skip(
+            "GOOGLE_API_KEY is required for Gemini-backed synopsis integration tests."
+        )
+    return key
+
+
+@pytest.fixture(scope="session")
+def gemini_probe(gemini_api_key):
+    """Validate Gemini client can be constructed for external-API tests."""
+    from app.video_understanding import GeminiSceneLLMClient
+
+    scene_model_id = _read_env("SCENE_MODEL_ID", "gemini-2.5-flash-lite") or "gemini-2.5-flash-lite"
+    synopsis_model_id = (
+        _read_env("SYNOPSIS_MODEL_ID", "gemini-2.5-flash-lite") or "gemini-2.5-flash-lite"
+    )
+    try:
+        GeminiSceneLLMClient(
+            google_api_key=gemini_api_key,
+            scene_model_id=scene_model_id,
+            synopsis_model_id=synopsis_model_id,
+        )
+    except Exception as exc:
+        pytest.skip(f"Skipping Gemini-backed integration tests: client setup failed ({exc}).")
+    return {
+        "scene_model_id": scene_model_id,
+        "synopsis_model_id": synopsis_model_id,
+    }
+
+
+@pytest.fixture()
+def synopsis_e2e_settings(monkeypatch, gemini_api_key):
+    """Return settings for synopsis E2E tests with scene understanding enabled."""
+    _load_env_file(_R2_ENV_FILE)
+    monkeypatch.setenv("GOOGLE_API_KEY", gemini_api_key)
+    monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")
+    settings = Settings.from_env()
+
+    missing_r2 = settings.missing_r2_fields()
+    if missing_r2:
+        pytest.skip(
+            "Missing R2 settings for synopsis integration tests: "
+            + ", ".join(missing_r2)
+        )
+    missing_llm = settings.missing_llm_fields()
+    if missing_llm:
+        pytest.skip(
+            "Missing LLM settings for synopsis integration tests: "
+            + ", ".join(missing_llm)
+        )
+    return settings

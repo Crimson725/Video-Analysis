@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 
 def _read_int(name: str, default: int, minimum: int) -> int:
@@ -28,6 +29,29 @@ def _read_bool(name: str, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _load_dotenv_file(path: Path) -> None:
+    """Load KEY=VALUE pairs from a dotenv file without overriding existing env."""
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+def _load_dotenv_files(paths: Iterable[Path]) -> None:
+    """Load multiple dotenv files in order."""
+    for path in paths:
+        _load_dotenv_file(path)
 
 
 @dataclass(frozen=True)
@@ -56,8 +80,17 @@ class Settings:
     langsmith_project: str
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(
+        cls,
+        *,
+        autoload_dotenv: bool = True,
+        dotenv_files: tuple[Path, ...] | None = None,
+    ) -> "Settings":
         default_temp = Path(__file__).resolve().parent.parent / "tmp_media"
+        if autoload_dotenv:
+            backend_root = Path(__file__).resolve().parent.parent
+            default_dotenvs = (backend_root / ".env", backend_root / ".env.local")
+            _load_dotenv_files(dotenv_files or default_dotenvs)
         return cls(
             r2_account_id=os.getenv("R2_ACCOUNT_ID", "").strip(),
             r2_bucket=os.getenv("R2_BUCKET", "").strip(),

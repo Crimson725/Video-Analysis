@@ -46,6 +46,16 @@ Set the following environment variables before running the API:
 
 Startup logs include validation for missing required R2 settings.
 
+### Automatic `.env` Loading
+
+At startup, the backend automatically loads dotenv files from the backend directory in this order:
+
+1. `backend/.env`
+2. `backend/.env.local`
+
+`backend/.env.local` is the recommended place for machine-local secrets such as `GOOGLE_API_KEY`.
+Environment variables already present in the process take precedence over file values.
+
 ## R2 Lifecycle Operations
 
 Use Cloudflare R2 lifecycle rules in each environment to:
@@ -103,6 +113,24 @@ Behavior:
 - Skips when required R2 credentials/config are missing.
 - Writes JSON and TOON artifacts to R2, reads them back, and validates non-empty payloads.
 - Always deletes test-created objects in teardown/finally, including failure-path scenarios.
+
+## Video Synopsis End-to-End Integration Test (Live Gemini)
+
+Run the targeted synopsis E2E test:
+
+```bash
+cd backend
+GOOGLE_API_KEY="<your-gemini-key>" ENABLE_SCENE_UNDERSTANDING_PIPELINE=true \
+  uv run pytest tests/integration/test_video_synopsis_e2e_integration.py -m "integration and external_api" -vv
+```
+
+Behavior:
+
+- Skips when `GOOGLE_API_KEY` is missing.
+- Skips when Gemini client setup is unavailable.
+- Skips when Gemini quota/rate-limit availability prevents a live run.
+- Uses live `process_video()` execution and validates `scene_narratives` plus `video_synopsis` contract fields.
+- Keeps assertions structural (no exact generated-text matching).
 
 ## Dependencies
 

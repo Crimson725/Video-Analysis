@@ -2,8 +2,10 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.storage import build_scene_key, build_summary_key
-from app.video_understanding import run_scene_understanding_pipeline
+from app.video_understanding import GeminiSceneLLMClient, run_scene_understanding_pipeline
 
 
 def _settings(**overrides):
@@ -224,3 +226,30 @@ def test_trace_metadata_propagates_when_enabled(monkeypatch):
     assert narrative_trace["project"] == "dev-evals"
     assert narrative_trace["stage"] == "scene_narrative"
     assert synopsis_trace["stage"] == "video_synopsis"
+
+
+def test_parse_scene_json_accepts_fenced_block():
+    payload = """
+    ```json
+    {"narrative_paragraph":"Scene summary.","key_moments":["moment 1"],"mentioned_entities":[],"mentioned_events":[]}
+    ```
+    """
+    parsed = GeminiSceneLLMClient._parse_scene_json(payload)
+    assert parsed["narrative_paragraph"] == "Scene summary."
+    assert parsed["key_moments"] == ["moment 1"]
+
+
+def test_parse_scene_json_accepts_wrapped_response():
+    payload = (
+        "Here is the JSON result:\n"
+        '{"narrative_paragraph":"Scene summary.","key_moments":["moment 1"],'
+        '"mentioned_entities":[],"mentioned_events":[]}'
+    )
+    parsed = GeminiSceneLLMClient._parse_scene_json(payload)
+    assert parsed["narrative_paragraph"] == "Scene summary."
+    assert parsed["key_moments"] == ["moment 1"]
+
+
+def test_parse_scene_json_rejects_non_json():
+    with pytest.raises(ValueError):
+        GeminiSceneLLMClient._parse_scene_json("not-json")

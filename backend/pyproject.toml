@@ -39,4 +39,5 @@ testpaths = ["tests"]
 addopts = "-m 'not integration'"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "external_api: marks tests that call external provider APIs (e.g. Gemini)",
 ]

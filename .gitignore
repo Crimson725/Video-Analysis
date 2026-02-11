@@ -7,3 +7,4 @@
 *.jpg
 .DS_Store
 /Test Videos
+backend/.env.local
