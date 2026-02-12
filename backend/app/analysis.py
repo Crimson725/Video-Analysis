@@ -310,6 +310,57 @@ def run_segmentation(
     return items
 
 
+def _to_int_box(box: Any) -> tuple[int, int, int, int]:
+    """Normalize bounding-box coordinates for JSON payloads and tracker lookups."""
+    return (
+        _to_int_coords(box[0]),
+        _to_int_coords(box[1]),
+        _to_int_coords(box[2]),
+        _to_int_coords(box[3]),
+    )
+
+
+def _extract_box_ids(boxes: Any) -> Any:
+    """Best-effort extraction of detector-provided track IDs."""
+    if not hasattr(boxes, "id") or boxes.id is None:
+        return None
+    try:
+        return boxes.id.cpu().numpy()
+    except Exception:
+        return None
+
+
+def _resolve_detection_track_num(
+    *,
+    box_ids: Any,
+    index: int,
+    object_tracker: ObjectTrackTracker | None,
+    label: str,
+    box_tuple: tuple[int, int, int, int],
+    frame_id: int,
+    used_track_nums: set[int],
+    job_id: str,
+) -> int:
+    """Resolve the stable track number using detector IDs, tracker state, or deterministic fallback."""
+    if box_ids is not None and index < len(box_ids):
+        raw_track = box_ids[index]
+        if raw_track is None or (isinstance(raw_track, float) and np.isnan(raw_track)):
+            return index + 1
+        return int(raw_track)
+
+    if object_tracker is not None:
+        return object_tracker.assign_track(
+            label=label,
+            box=box_tuple,
+            frame_id=frame_id,
+            used_track_nums=used_track_nums,
+        )
+
+    # Deterministic fallback when tracker outputs are unavailable.
+    seed = f"{job_id}:{frame_id}:{label}:{index}".encode("utf-8")
+    return int(hashlib.sha1(seed).hexdigest()[:8], 16)
+
+
 def run_detection(
     image: np.ndarray,
     model: Any,
@@ -336,40 +387,23 @@ def run_detection(
     xyxy = result.boxes.xyxy.cpu().numpy()
     conf = result.boxes.conf.cpu().numpy()
     cls_ids = result.boxes.cls.cpu().numpy()
-    box_ids = None
-    if hasattr(result.boxes, "id") and result.boxes.id is not None:
-        try:
-            box_ids = result.boxes.id.cpu().numpy()
-        except Exception:
-            box_ids = None
+    box_ids = _extract_box_ids(result.boxes)
     used_track_nums: set[int] = set()
     for index, box in enumerate(xyxy):
         score = conf[index]
         cls_id = cls_ids[index]
         label = names.get(int(cls_id), str(int(cls_id)))
-        x1 = _to_int_coords(box[0])
-        y1 = _to_int_coords(box[1])
-        x2 = _to_int_coords(box[2])
-        y2 = _to_int_coords(box[3])
-        box_tuple = (x1, y1, x2, y2)
-
-        if box_ids is not None and index < len(box_ids):
-            raw_track = box_ids[index]
-            if raw_track is None or (isinstance(raw_track, float) and np.isnan(raw_track)):
-                track_num = index + 1
-            else:
-                track_num = int(raw_track)
-        elif object_tracker is not None:
-            track_num = object_tracker.assign_track(
-                label=label,
-                box=box_tuple,
-                frame_id=frame_id,
-                used_track_nums=used_track_nums,
-            )
-        else:
-            # Deterministic fallback when tracker outputs are unavailable.
-            seed = f"{job_id}:{frame_id}:{label}:{index}".encode("utf-8")
-            track_num = int(hashlib.sha1(seed).hexdigest()[:8], 16)
+        box_tuple = _to_int_box(box)
+        track_num = _resolve_detection_track_num(
+            box_ids=box_ids,
+            index=index,
+            object_tracker=object_tracker,
+            label=label,
+            box_tuple=box_tuple,
+            frame_id=frame_id,
+            used_track_nums=used_track_nums,
+            job_id=job_id,
+        )
 
         used_track_nums.add(track_num)
         items.append(
@@ -377,7 +411,7 @@ def run_detection(
                 "track_id": f"{label}_{track_num}",
                 "label": label,
                 "confidence": float(score),
-                "box": [x1, y1, x2, y2],
+                "box": list(box_tuple),
             }
         )
     return items

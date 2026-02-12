@@ -3,6 +3,7 @@
 import logging
 import mimetypes
 import shutil
+from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -243,6 +244,42 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
     return payload
 
 
+def _is_jobs_object_key(object_key: Any) -> bool:
+    """Check whether a value is a persisted artifact object key."""
+    return isinstance(object_key, str) and object_key.startswith("jobs/")
+
+
+def _add_required_key_or_log(
+    *,
+    required: set[str],
+    object_key: Any,
+    warning_template: str,
+    warning_context: tuple[Any, ...],
+) -> None:
+    """Add valid object keys to required set, otherwise emit existing warning logs."""
+    if _is_jobs_object_key(object_key):
+        required.add(object_key)
+        return
+    logger.warning(warning_template, *warning_context, object_key)
+
+
+def _collect_required_keys_from_values(
+    *,
+    required: set[str],
+    values: Iterable[Any],
+    warning_template: str,
+    warning_context: tuple[Any, ...],
+) -> None:
+    """Collect required keys from an iterable while preserving invalid-key warning semantics."""
+    for object_key in values:
+        _add_required_key_or_log(
+            required=required,
+            object_key=object_key,
+            warning_template=warning_template,
+            warning_context=warning_context,
+        )
+
+
 def _collect_required_artifact_keys(
     job_id: str,
     result_payload: dict[str, Any],
@@ -252,73 +289,52 @@ def _collect_required_artifact_keys(
     required: set[str] = {source_key}
     for frame in result_payload.get("frames", []):
         frame_id = frame.get("frame_id")
-        for object_key in frame.get("files", {}).values():
-            if isinstance(object_key, str) and object_key.startswith("jobs/"):
-                required.add(object_key)
-            else:
-                logger.warning(
-                    "upload.verify.invalid_frame_file_key job_id=%s frame_id=%s value=%s",
-                    job_id,
-                    frame_id,
-                    object_key,
-                )
-        for object_key in frame.get("analysis_artifacts", {}).values():
-            if isinstance(object_key, str) and object_key.startswith("jobs/"):
-                required.add(object_key)
-            else:
-                logger.warning(
-                    "upload.verify.invalid_analysis_key job_id=%s frame_id=%s value=%s",
-                    job_id,
-                    frame_id,
-                    object_key,
-                )
+        _collect_required_keys_from_values(
+            required=required,
+            values=frame.get("files", {}).values(),
+            warning_template="upload.verify.invalid_frame_file_key job_id=%s frame_id=%s value=%s",
+            warning_context=(job_id, frame_id),
+        )
+        _collect_required_keys_from_values(
+            required=required,
+            values=frame.get("analysis_artifacts", {}).values(),
+            warning_template="upload.verify.invalid_analysis_key job_id=%s frame_id=%s value=%s",
+            warning_context=(job_id, frame_id),
+        )
     for scene_narrative in result_payload.get("scene_narratives", []):
         scene_id = scene_narrative.get("scene_id")
-        for object_key in scene_narrative.get("artifacts", {}).values():
-            if isinstance(object_key, str) and object_key.startswith("jobs/"):
-                required.add(object_key)
-            else:
-                logger.warning(
-                    "upload.verify.invalid_scene_key job_id=%s scene_id=%s value=%s",
-                    job_id,
-                    scene_id,
-                    object_key,
-                )
+        _collect_required_keys_from_values(
+            required=required,
+            values=scene_narrative.get("artifacts", {}).values(),
+            warning_template="upload.verify.invalid_scene_key job_id=%s scene_id=%s value=%s",
+            warning_context=(job_id, scene_id),
+        )
         scene_corpus = scene_narrative.get("corpus") or {}
-        for object_key in scene_corpus.get("artifacts", {}).values():
-            if isinstance(object_key, str) and object_key.startswith("jobs/"):
-                required.add(object_key)
-            else:
-                logger.warning(
-                    "upload.verify.invalid_scene_corpus_key job_id=%s scene_id=%s value=%s",
-                    job_id,
-                    scene_id,
-                    object_key,
-                )
+        _collect_required_keys_from_values(
+            required=required,
+            values=scene_corpus.get("artifacts", {}).values(),
+            warning_template="upload.verify.invalid_scene_corpus_key job_id=%s scene_id=%s value=%s",
+            warning_context=(job_id, scene_id),
+        )
 
     video_synopsis = result_payload.get("video_synopsis")
     if isinstance(video_synopsis, dict):
         object_key = video_synopsis.get("artifact")
-        if isinstance(object_key, str) and object_key.startswith("jobs/"):
-            required.add(object_key)
-        else:
-            logger.warning(
-                "upload.verify.invalid_synopsis_key job_id=%s value=%s",
-                job_id,
-                object_key,
-            )
+        _add_required_key_or_log(
+            required=required,
+            object_key=object_key,
+            warning_template="upload.verify.invalid_synopsis_key job_id=%s value=%s",
+            warning_context=(job_id,),
+        )
 
     corpus_payload = result_payload.get("corpus")
     if isinstance(corpus_payload, dict):
-        for object_key in corpus_payload.get("artifacts", {}).values():
-            if isinstance(object_key, str) and object_key.startswith("jobs/"):
-                required.add(object_key)
-            else:
-                logger.warning(
-                    "upload.verify.invalid_corpus_key job_id=%s value=%s",
-                    job_id,
-                    object_key,
-                )
+        _collect_required_keys_from_values(
+            required=required,
+            values=corpus_payload.get("artifacts", {}).values(),
+            warning_template="upload.verify.invalid_corpus_key job_id=%s value=%s",
+            warning_context=(job_id,),
+        )
     return required
 
 
