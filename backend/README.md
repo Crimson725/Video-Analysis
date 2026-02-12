@@ -32,10 +32,11 @@ uv run python run.py
 
 ## Corpus/KG/RAG Pipeline Flags
 
-Set these to enable corpus construction and optional local ingest:
+These flags are enabled by default and can be overridden per environment:
 
-- `ENABLE_CORPUS_PIPELINE` - build graph/retrieval/embeddings bundles after scene understanding (`false` default)
-- `ENABLE_CORPUS_INGEST` - ingest bundles into configured graph/vector adapters (`false` default)
+- `ENABLE_SCENE_UNDERSTANDING_PIPELINE` - build scene packets, scene narratives, and video synopsis (`true` default)
+- `ENABLE_CORPUS_PIPELINE` - build graph/retrieval/embeddings bundles after scene understanding (`true` default)
+- `ENABLE_CORPUS_INGEST` - ingest bundles into configured graph/vector adapters (`true` default)
 - `GRAPH_BACKEND` - `neo4j` or `memory`
 - `VECTOR_BACKEND` - `pgvector` or `memory`
 - `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`

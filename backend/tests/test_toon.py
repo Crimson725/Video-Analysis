@@ -36,3 +36,37 @@ class TestConvertJsonToToon:
         payload = convert_json_to_toon(b'{"frame_id": 1}')
 
         assert payload == b"TOON_OK"
+
+    def test_transient_eagain_error_retries_then_succeeds(self, monkeypatch):
+        script = Path(__file__)
+        monkeypatch.setattr("app.toon._TOON_CONVERTER", script)
+
+        results = iter(
+            [
+                SimpleNamespace(
+                    returncode=1,
+                    stdout=b"",
+                    stderr=b"convert_toon failed: EAGAIN: resource temporarily unavailable, read",
+                ),
+                SimpleNamespace(returncode=0, stdout=b"TOON_OK", stderr=b""),
+            ]
+        )
+
+        calls = {"count": 0}
+
+        def _fake_run(*args, **kwargs):
+            del args, kwargs
+            calls["count"] += 1
+            return next(results)
+
+        monkeypatch.setattr("app.toon.subprocess.run", _fake_run)
+        monkeypatch.setattr("app.toon.time.sleep", lambda *_args, **_kwargs: None)
+
+        payload = convert_json_to_toon(b'{"frame_id": 1}', max_attempts=3, retry_backoff_seconds=0.0)
+
+        assert payload == b"TOON_OK"
+        assert calls["count"] == 2
+
+    def test_invalid_max_attempts_raises(self):
+        with pytest.raises(ToonConversionError, match="max_attempts must be >= 1"):
+            convert_json_to_toon(b'{"frame_id": 1}', max_attempts=0)

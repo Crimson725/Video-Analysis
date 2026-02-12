@@ -110,6 +110,179 @@ def _to_signed_url_if_needed(value: Any, media_store: MediaStore) -> str:
     return value
 
 
+def _materialize_signed_file_map(raw_files: Any, media_store: MediaStore) -> dict[str, str]:
+    """Sign frame file references while dropping invalid/empty values."""
+    files: dict[str, str] = {}
+    for name, value in raw_files.items():
+        signed_value = _to_signed_url_if_needed(value, media_store)
+        if signed_value:
+            files[name] = signed_value
+    return files
+
+
+def _normalize_object_detection(raw_analysis: dict[str, Any], frame_id: int) -> list[dict[str, Any]]:
+    """Normalize object detections and fill missing track identifiers."""
+    normalized_items: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_analysis.get("object_detection", [])):
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        normalized["track_id"] = normalized.get("track_id") or f"track_{frame_id}_{index + 1}"
+        normalized_items.append(normalized)
+    return normalized_items
+
+
+def _normalize_face_recognition(raw_analysis: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalize face detections and fill missing identity identifiers."""
+    normalized_items: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_analysis.get("face_recognition", [])):
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        normalized["identity_id"] = normalized.get("identity_id") or f"face_{index + 1}"
+        normalized_items.append(normalized)
+    return normalized_items
+
+
+def _default_frame_metadata(
+    *,
+    job_id: Any,
+    frame_id: int,
+    timestamp: str,
+    source_artifact_key: str,
+) -> dict[str, Any]:
+    """Build fallback frame metadata when upstream metadata is missing."""
+    resolved_job_id = "" if job_id is None else job_id
+    return {
+        "provenance": {
+            "job_id": str(resolved_job_id),
+            "scene_id": None,
+            "frame_id": frame_id,
+            "timestamp": timestamp,
+            "source_artifact_key": source_artifact_key,
+        },
+        "model_provenance": [],
+        "evidence_anchors": [],
+    }
+
+
+def _materialize_frame_result(
+    *,
+    frame: dict[str, Any],
+    job_id: Any,
+    media_store: MediaStore,
+) -> dict[str, Any]:
+    """Materialize one frame payload with signed URLs and normalized analysis fields."""
+    files = _materialize_signed_file_map(frame.get("files"), media_store)
+    raw_artifacts = frame.get("analysis_artifacts", {})
+    analysis_artifacts = {
+        "json": _to_signed_url_if_needed(raw_artifacts.get("json"), media_store),
+        "toon": _to_signed_url_if_needed(raw_artifacts.get("toon"), media_store),
+    }
+    frame_id = int(frame.get("frame_id", 0))
+    timestamp = str(frame.get("timestamp", ""))
+    raw_analysis = frame.get("analysis", {})
+    object_detection = _normalize_object_detection(raw_analysis, frame_id)
+    face_recognition = _normalize_face_recognition(raw_analysis)
+
+    metadata = frame.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = _default_frame_metadata(
+            job_id=job_id,
+            frame_id=frame_id,
+            timestamp=timestamp,
+            source_artifact_key=files.get("original", ""),
+        )
+
+    return {
+        "frame_id": frame_id,
+        "timestamp": timestamp,
+        "files": files,
+        "analysis": {
+            "semantic_segmentation": raw_analysis.get("semantic_segmentation", []),
+            "object_detection": object_detection,
+            "face_recognition": face_recognition,
+            "enrichment": raw_analysis.get("enrichment", {}),
+        },
+        "analysis_artifacts": analysis_artifacts,
+        "metadata": metadata,
+    }
+
+
+def _materialize_scene_corpus(scene_narrative: dict[str, Any], media_store: MediaStore) -> dict[str, Any] | None:
+    """Materialize optional scene-level corpus artifact URLs."""
+    scene_corpus = scene_narrative.get("corpus")
+    if not scene_corpus:
+        return None
+    return {
+        **(scene_corpus or {}),
+        "artifacts": {
+            "graph_bundle": _to_signed_url_if_needed(
+                (scene_corpus or {}).get("artifacts", {}).get("graph_bundle"),
+                media_store,
+            ),
+            "retrieval_bundle": _to_signed_url_if_needed(
+                (scene_corpus or {}).get("artifacts", {}).get("retrieval_bundle"),
+                media_store,
+            ),
+        },
+    }
+
+
+def _materialize_scene_narrative(scene_narrative: dict[str, Any], media_store: MediaStore) -> dict[str, Any]:
+    """Materialize one scene narrative with signed artifact URLs."""
+    raw_artifacts = scene_narrative.get("artifacts", {})
+    return {
+        "scene_id": scene_narrative.get("scene_id"),
+        "start_sec": scene_narrative.get("start_sec"),
+        "end_sec": scene_narrative.get("end_sec"),
+        "narrative_paragraph": scene_narrative.get("narrative_paragraph", ""),
+        "key_moments": scene_narrative.get("key_moments", []),
+        "artifacts": {
+            "packet": _to_signed_url_if_needed(raw_artifacts.get("packet"), media_store),
+            "narrative": _to_signed_url_if_needed(raw_artifacts.get("narrative"), media_store),
+        },
+        "corpus": _materialize_scene_corpus(scene_narrative, media_store),
+        "trace": scene_narrative.get("trace"),
+    }
+
+
+def _materialize_video_synopsis(raw_summary: Any, media_store: MediaStore) -> dict[str, Any] | None:
+    """Materialize optional video synopsis payload."""
+    if not isinstance(raw_summary, dict):
+        return None
+    return {
+        "synopsis": raw_summary.get("synopsis", ""),
+        "artifact": _to_signed_url_if_needed(raw_summary.get("artifact"), media_store),
+        "model": raw_summary.get("model", ""),
+        "trace": raw_summary.get("trace"),
+    }
+
+
+def _materialize_corpus_payload(raw_corpus: Any, media_store: MediaStore) -> dict[str, Any] | None:
+    """Materialize optional corpus payload artifact URLs."""
+    if not isinstance(raw_corpus, dict):
+        return None
+    raw_corpus_artifacts = raw_corpus.get("artifacts", {})
+    return {
+        **raw_corpus,
+        "artifacts": {
+            "graph_bundle": _to_signed_url_if_needed(
+                raw_corpus_artifacts.get("graph_bundle"),
+                media_store,
+            ),
+            "retrieval_bundle": _to_signed_url_if_needed(
+                raw_corpus_artifacts.get("retrieval_bundle"),
+                media_store,
+            ),
+            "embeddings_bundle": _to_signed_url_if_needed(
+                raw_corpus_artifacts.get("embeddings_bundle"),
+                media_store,
+            ),
+        },
+    }
+
+
 def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store: MediaStore) -> dict[str, Any]:
     """Convert stored object keys to signed URLs for API responses."""
     payload: dict[str, Any] = {
@@ -120,127 +293,19 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
         "corpus": None,
     }
     for frame in result_payload.get("frames", []):
-        files: dict[str, str] = {}
-        raw_files = frame.get("files", {})
-        for name, value in raw_files.items():
-            signed_value = _to_signed_url_if_needed(value, media_store)
-            if signed_value:
-                files[name] = signed_value
-
-        raw_artifacts = frame.get("analysis_artifacts", {})
-        analysis_artifacts = {
-            "json": _to_signed_url_if_needed(raw_artifacts.get("json"), media_store),
-            "toon": _to_signed_url_if_needed(raw_artifacts.get("toon"), media_store),
-        }
-        frame_id = int(frame.get("frame_id", 0))
-        timestamp = str(frame.get("timestamp", ""))
-        raw_analysis = frame.get("analysis", {})
-        object_detection = []
-        for index, item in enumerate(raw_analysis.get("object_detection", [])):
-            if not isinstance(item, dict):
-                continue
-            normalized = dict(item)
-            normalized["track_id"] = normalized.get("track_id") or f"track_{frame_id}_{index + 1}"
-            object_detection.append(normalized)
-        face_recognition = []
-        for index, item in enumerate(raw_analysis.get("face_recognition", [])):
-            if not isinstance(item, dict):
-                continue
-            normalized = dict(item)
-            normalized["identity_id"] = normalized.get("identity_id") or f"face_{index + 1}"
-            face_recognition.append(normalized)
-
-        metadata = frame.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {
-                "provenance": {
-                    "job_id": str(result_payload.get("job_id", "")),
-                    "scene_id": None,
-                    "frame_id": frame_id,
-                    "timestamp": timestamp,
-                    "source_artifact_key": files.get("original", ""),
-                },
-                "model_provenance": [],
-                "evidence_anchors": [],
-            }
-
         payload["frames"].append(
-            {
-                "frame_id": frame_id,
-                "timestamp": timestamp,
-                "files": files,
-                "analysis": {
-                    "semantic_segmentation": raw_analysis.get("semantic_segmentation", []),
-                    "object_detection": object_detection,
-                    "face_recognition": face_recognition,
-                    "enrichment": raw_analysis.get("enrichment", {}),
-                },
-                "analysis_artifacts": analysis_artifacts,
-                "metadata": metadata,
-            }
+            _materialize_frame_result(
+                frame=frame,
+                job_id=result_payload.get("job_id"),
+                media_store=media_store,
+            )
         )
 
     for scene_narrative in result_payload.get("scene_narratives", []):
-        raw_artifacts = scene_narrative.get("artifacts", {})
-        payload["scene_narratives"].append(
-            {
-                "scene_id": scene_narrative.get("scene_id"),
-                "start_sec": scene_narrative.get("start_sec"),
-                "end_sec": scene_narrative.get("end_sec"),
-                "narrative_paragraph": scene_narrative.get("narrative_paragraph", ""),
-                "key_moments": scene_narrative.get("key_moments", []),
-                "artifacts": {
-                    "packet": _to_signed_url_if_needed(raw_artifacts.get("packet"), media_store),
-                    "narrative": _to_signed_url_if_needed(raw_artifacts.get("narrative"), media_store),
-                },
-                "corpus": {
-                    **(scene_narrative.get("corpus") or {}),
-                    "artifacts": {
-                        "graph_bundle": _to_signed_url_if_needed(
-                            (scene_narrative.get("corpus") or {}).get("artifacts", {}).get("graph_bundle"),
-                            media_store,
-                        ),
-                        "retrieval_bundle": _to_signed_url_if_needed(
-                            (scene_narrative.get("corpus") or {}).get("artifacts", {}).get("retrieval_bundle"),
-                            media_store,
-                        ),
-                    },
-                }
-                if scene_narrative.get("corpus")
-                else None,
-                "trace": scene_narrative.get("trace"),
-            }
-        )
+        payload["scene_narratives"].append(_materialize_scene_narrative(scene_narrative, media_store))
 
-    raw_summary = result_payload.get("video_synopsis")
-    if isinstance(raw_summary, dict):
-        payload["video_synopsis"] = {
-            "synopsis": raw_summary.get("synopsis", ""),
-            "artifact": _to_signed_url_if_needed(raw_summary.get("artifact"), media_store),
-            "model": raw_summary.get("model", ""),
-            "trace": raw_summary.get("trace"),
-        }
-
-    raw_corpus = result_payload.get("corpus")
-    if isinstance(raw_corpus, dict):
-        raw_corpus_artifacts = raw_corpus.get("artifacts", {})
-        payload["corpus"] = {
-            **raw_corpus,
-            "artifacts": {
-                "graph_bundle": _to_signed_url_if_needed(
-                    raw_corpus_artifacts.get("graph_bundle"),
-                    media_store,
-                ),
-                "retrieval_bundle": _to_signed_url_if_needed(
-                    raw_corpus_artifacts.get("retrieval_bundle"),
-                    media_store,
-                ),
-                "embeddings_bundle": _to_signed_url_if_needed(
-                    raw_corpus_artifacts.get("embeddings_bundle"),
-                    media_store,
-                ),
-            },
-        }
+    payload["video_synopsis"] = _materialize_video_synopsis(result_payload.get("video_synopsis"), media_store)
+    payload["corpus"] = _materialize_corpus_payload(result_payload.get("corpus"), media_store)
     return payload
 
 

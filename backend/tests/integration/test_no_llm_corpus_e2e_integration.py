@@ -126,8 +126,6 @@ def test_process_video_no_llm_corpus_e2e(
         patch("app.main.SETTINGS", test_settings),
         patch("app.main.TEMP_MEDIA_DIR", tmp_path),
         patch("app.main.get_media_store", return_value=media_store),
-        # Keep this suite focused on CV->corpus->DB ingest; TOON runtime is validated elsewhere.
-        patch("app.analysis.convert_json_to_toon", return_value=b"TOON_DATA"),
     ):
         process_video(
             corpus_e2e_job_id,

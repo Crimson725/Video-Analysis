@@ -23,9 +23,9 @@ class TestSettings:
         monkeypatch.delenv("SCENE_MODEL_ID", raising=False)
         monkeypatch.delenv("SYNOPSIS_MODEL_ID", raising=False)
         settings = Settings.from_env(autoload_dotenv=False)
-        assert settings.enable_scene_understanding_pipeline is False
-        assert settings.enable_corpus_pipeline is False
-        assert settings.enable_corpus_ingest is False
+        assert settings.enable_scene_understanding_pipeline is True
+        assert settings.enable_corpus_pipeline is True
+        assert settings.enable_corpus_ingest is True
         assert settings.scene_model_id == "gemini-2.5-flash-lite"
         assert settings.synopsis_model_id == "gemini-2.5-flash-lite"
 

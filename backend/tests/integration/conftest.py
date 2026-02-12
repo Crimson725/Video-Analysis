@@ -113,6 +113,24 @@ def _run_command(
     return False, _truncate_message(output or f"exit code {result.returncode}")
 
 
+def _read_command_output(command: list[str], *, timeout_seconds: int = 60) -> str | None:
+    """Return command stdout text on success, otherwise None."""
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except Exception:
+        return None
+
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
 def _is_loopback_host(host: str | None) -> bool:
     """Return whether a hostname points to local loopback."""
     return host in {"127.0.0.1", "localhost", "::1"}
@@ -169,6 +187,23 @@ def _try_start_podman_machine() -> None:
     _run_command(["podman", "machine", "start", "podman-machine-default"], timeout_seconds=90)
 
 
+def _podman_machine_socket_path() -> str | None:
+    """Return podman machine socket path when available."""
+    output = _read_command_output(
+        [
+            "podman",
+            "machine",
+            "inspect",
+            "podman-machine-default",
+            "--format",
+            "{{.ConnectionInfo.PodmanSocket.Path}}",
+        ]
+    )
+    if not output:
+        return None
+    return output.splitlines()[-1].strip() or None
+
+
 def _start_local_corpus_stack(corpus_e2e_runtime: dict[str, str]) -> tuple[bool, str]:
     """Try to start local Neo4j + pgvector stack using Podman first, Docker fallback."""
     if not _corpus_runtime_targets_local_backends(corpus_e2e_runtime):
@@ -177,14 +212,21 @@ def _start_local_corpus_stack(corpus_e2e_runtime: dict[str, str]) -> tuple[bool,
         return False, f"compose file not found: {_CORPUS_COMPOSE_FILE}"
     compose_env = _compose_env_for_corpus_runtime(corpus_e2e_runtime)
 
-    runners: list[tuple[str, list[str]]] = []
+    runners: list[tuple[str, list[str], dict[str, str]]] = []
     if shutil.which("podman"):
         _try_start_podman_machine()
+        podman_env = compose_env.copy()
+        podman_prefix = ["podman"]
+        socket_path = _podman_machine_socket_path()
+        if socket_path:
+            podman_socket_url = f"unix://{socket_path}"
+            podman_prefix.extend(["--url", podman_socket_url])
+            podman_env["DOCKER_HOST"] = podman_socket_url
         runners.append(
             (
                 "podman",
-                [
-                    "podman",
+                podman_prefix
+                + [
                     "compose",
                     "-p",
                     _CORPUS_COMPOSE_PROJECT,
@@ -193,6 +235,7 @@ def _start_local_corpus_stack(corpus_e2e_runtime: dict[str, str]) -> tuple[bool,
                     "up",
                     "-d",
                 ],
+                podman_env,
             )
         )
     if shutil.which("docker"):
@@ -209,22 +252,120 @@ def _start_local_corpus_stack(corpus_e2e_runtime: dict[str, str]) -> tuple[bool,
                     "up",
                     "-d",
                 ],
+                compose_env,
             )
         )
     if not runners:
         return False, "neither podman nor docker is available"
 
     failures: list[str] = []
-    for runner_name, command in runners:
+    for runner_name, command, runner_env in runners:
         # Ensure this test stack starts from a clean DB volume state.
         down_cmd = command[:-2] + ["down", "-v", "--remove-orphans"]
-        _run_command(down_cmd, timeout_seconds=120, env=compose_env)
+        _run_command(down_cmd, timeout_seconds=120, env=runner_env)
 
-        ok, detail = _run_command(command, timeout_seconds=180, env=compose_env)
+        ok, detail = _run_command(command, timeout_seconds=180, env=runner_env)
         if ok:
             return True, f"{runner_name} compose up -d succeeded"
+        if runner_name == "podman":
+            # Some environments route `podman compose` through external docker-compose.
+            podman_prefix = command[: command.index("compose")]
+            fallback_ok, fallback_detail = _start_local_corpus_stack_with_podman_run(
+                corpus_e2e_runtime=corpus_e2e_runtime,
+                podman_prefix=podman_prefix,
+                runner_env=runner_env,
+            )
+            if fallback_ok:
+                return True, "podman run fallback succeeded"
+            failures.append(
+                f"podman compose: {detail}; podman run fallback: {fallback_detail}"
+            )
+            continue
         failures.append(f"{runner_name}: {detail}")
     return False, "; ".join(failures)
+
+
+def _start_local_corpus_stack_with_podman_run(
+    *,
+    corpus_e2e_runtime: dict[str, str],
+    podman_prefix: list[str],
+    runner_env: dict[str, str],
+) -> tuple[bool, str]:
+    """Fallback startup path that avoids `podman compose` external providers."""
+    neo4j_uri = urlparse(corpus_e2e_runtime["neo4j_uri"])
+    pg_uri = urlparse(corpus_e2e_runtime["pgvector_dsn"])
+
+    neo4j_bolt_port = str(neo4j_uri.port or _DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT)
+    neo4j_http_port = str(_derive_neo4j_http_port(int(neo4j_bolt_port)))
+    neo4j_auth = f"{corpus_e2e_runtime['neo4j_username']}/{corpus_e2e_runtime['neo4j_password']}"
+
+    pg_port = str(pg_uri.port or _DEFAULT_CORPUS_TEST_PGVECTOR_PORT)
+    pg_user = pg_uri.username or "video_analysis"
+    pg_password = pg_uri.password or "video_analysis"
+    pg_database = pg_uri.path.lstrip("/") or "video_analysis"
+
+    neo4j_container = f"{_CORPUS_COMPOSE_PROJECT}-neo4j"
+    pg_container = f"{_CORPUS_COMPOSE_PROJECT}-pgvector"
+    neo4j_volume = f"{_CORPUS_COMPOSE_PROJECT}-neo4j-data"
+    pg_volume = f"{_CORPUS_COMPOSE_PROJECT}-pgvector-data"
+
+    cleanup_commands = [
+        podman_prefix + ["rm", "-f", neo4j_container, pg_container],
+        podman_prefix + ["volume", "rm", "-f", neo4j_volume, pg_volume],
+    ]
+    for cleanup_cmd in cleanup_commands:
+        _run_command(cleanup_cmd, timeout_seconds=120, env=runner_env)
+
+    neo4j_run = podman_prefix + [
+        "run",
+        "-d",
+        "--name",
+        neo4j_container,
+        "-p",
+        f"{neo4j_http_port}:7474",
+        "-p",
+        f"{neo4j_bolt_port}:7687",
+        "-e",
+        f"NEO4J_AUTH={neo4j_auth}",
+        "-e",
+        "NEO4J_server_memory_heap_initial__size=512m",
+        "-e",
+        "NEO4J_server_memory_heap_max__size=512m",
+        "-v",
+        f"{neo4j_volume}:/data",
+        "neo4j:5.26-community",
+    ]
+    ok, neo4j_detail = _run_command(neo4j_run, timeout_seconds=180, env=runner_env)
+    if not ok:
+        return False, f"neo4j container startup failed ({neo4j_detail})"
+
+    pg_run = podman_prefix + [
+        "run",
+        "-d",
+        "--name",
+        pg_container,
+        "-p",
+        f"{pg_port}:5432",
+        "-e",
+        f"POSTGRES_USER={pg_user}",
+        "-e",
+        f"POSTGRES_PASSWORD={pg_password}",
+        "-e",
+        f"POSTGRES_DB={pg_database}",
+        "-v",
+        f"{pg_volume}:/var/lib/postgresql/data",
+        "pgvector/pgvector:pg16",
+    ]
+    ok, pg_detail = _run_command(pg_run, timeout_seconds=180, env=runner_env)
+    if not ok:
+        _run_command(
+            podman_prefix + ["rm", "-f", neo4j_container],
+            timeout_seconds=60,
+            env=runner_env,
+        )
+        return False, f"pgvector container startup failed ({pg_detail})"
+
+    return True, "neo4j and pgvector started with podman run fallback"
 
 
 def _probe_neo4j(corpus_e2e_runtime: dict[str, str]) -> str | None:

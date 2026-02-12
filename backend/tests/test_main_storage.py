@@ -1,11 +1,13 @@
 """Tests for storage-related failure paths in app.main."""
 
+from dataclasses import replace
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from app import jobs
 from app.cleanup import RETAIN_SOURCE_MARKER
+from app.config import Settings
 from app.storage import MediaStoreConfigError, MediaStoreError
 
 
@@ -126,7 +128,14 @@ class TestProcessVideoStorageFailures:
 
         from app.main import process_video
 
-        process_video(job_id, "/tmp/nonexistent.mp4", "mp4")
+        base_settings = Settings.from_env()
+        test_settings = replace(
+            base_settings,
+            enable_corpus_pipeline=False,
+            enable_corpus_ingest=False,
+        )
+        with patch("app.main.SETTINGS", test_settings):
+            process_video(job_id, "/tmp/nonexistent.mp4", "mp4")
         job = jobs.get_job(job_id)
         assert job is not None
         assert job["status"] == "failed"
