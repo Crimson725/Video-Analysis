@@ -1,26 +1,24 @@
 services:
   neo4j:
     image: neo4j:5.26-community
-    container_name: video_analysis_neo4j
     environment:
-      NEO4J_AUTH: neo4j/local-dev-password
+      NEO4J_AUTH: ${CORPUS_NEO4J_AUTH:-neo4j/local-dev-password}
       NEO4J_server_memory_heap_initial__size: 512m
       NEO4J_server_memory_heap_max__size: 512m
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "${CORPUS_NEO4J_HTTP_PORT:-7474}:7474"
+      - "${CORPUS_NEO4J_BOLT_PORT:-7687}:7687"
     volumes:
       - neo4j_data:/data
 
   pgvector:
     image: pgvector/pgvector:pg16
-    container_name: video_analysis_pgvector
     environment:
-      POSTGRES_USER: video_analysis
-      POSTGRES_PASSWORD: video_analysis
-      POSTGRES_DB: video_analysis
+      POSTGRES_USER: ${CORPUS_PGVECTOR_USER:-video_analysis}
+      POSTGRES_PASSWORD: ${CORPUS_PGVECTOR_PASSWORD:-video_analysis}
+      POSTGRES_DB: ${CORPUS_PGVECTOR_DB:-video_analysis}
     ports:
-      - "5433:5432"
+      - "${CORPUS_PGVECTOR_PORT:-5433}:5432"
     volumes:
       - pgvector_data:/var/lib/postgresql/data
 

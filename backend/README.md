@@ -128,6 +128,28 @@ Behavior:
 - Writes JSON and TOON artifacts to R2, reads them back, and validates non-empty payloads.
 - Always deletes test-created objects in teardown/finally, including failure-path scenarios.
 
+## No-LLM Corpus E2E Integration Test
+
+This opt-in integration test validates one full path: real CV `process_video` run, corpus artifact generation, Neo4j + pgvector ingest verification, and cleanup policy assertion, without requiring Gemini/LLM.
+
+```bash
+cd backend
+RUN_CORPUS_E2E_INTEGRATION=1 \
+ENABLE_SCENE_UNDERSTANDING_PIPELINE=false \
+ENABLE_CORPUS_PIPELINE=true \
+ENABLE_CORPUS_INGEST=true \
+uv run pytest tests/integration/test_no_llm_corpus_e2e_integration.py -m integration -vv
+```
+
+Notes:
+
+- Works with either Docker or Podman as long as local Neo4j + pgvector services are reachable.
+- On opt-in runs, the integration fixture attempts to start local Neo4j + pgvector automatically (`podman compose` first, Docker fallback) before skipping.
+- The suite uses isolated default DB endpoints (`bolt://127.0.0.1:17687`, `postgresql://video_analysis:video_analysis@127.0.0.1:15433/video_analysis`) to avoid conflicts with existing local DB services.
+- The suite is pinned to the canonical real test video at `/Users/crimson2049/Video Analysis/Test Videos/WhatCarCanYouGetForAGrand.mp4` and does not use fake MP4 fixtures.
+- The test is skipped unless `RUN_CORPUS_E2E_INTEGRATION=1` is set.
+- Default `pytest` runs remain unchanged (`-m 'not integration'`).
+
 ## Video Synopsis End-to-End Integration Test (Live Gemini)
 
 Run the targeted synopsis E2E test:
@@ -145,6 +167,27 @@ Behavior:
 - Skips when Gemini quota/rate-limit availability prevents a live run.
 - Uses live `process_video()` execution and validates `scene_narratives` plus `video_synopsis` contract fields.
 - Keeps assertions structural (no exact generated-text matching).
+
+## Output-Content E2E Integration Test (Canonical Test Video)
+
+Run the dedicated output-content validation suite for the canonical test video:
+
+```bash
+cd backend
+GOOGLE_API_KEY="<your-gemini-key>" ENABLE_SCENE_UNDERSTANDING_PIPELINE=true \
+  uv run pytest tests/integration/test_output_content_e2e_integration.py -m "integration and external_api" -vv
+```
+
+Behavior:
+
+- Uses `Test Videos/WhatCarCanYouGetForAGrand.mp4` as the canonical fixture input.
+- Verifies completion contract plus output-content rubric checks (minimum narrative/synopsis usefulness and topical anchor coverage).
+- Avoids brittle exact-text assertions and model-accuracy metrics.
+- Skips with actionable prerequisite guidance when required env/config is unavailable.
+
+Tuning knobs:
+
+- Edit `backend/tests/integration/fixtures/output_content_expectations.json` to adjust topic anchors and minimum thresholds without changing test assertion logic.
 
 ## Dependencies
 

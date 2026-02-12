@@ -68,3 +68,50 @@ The same adapters can run on low-cost/self-hosted targets:
 - PostgreSQL + pgvector on low-cost Postgres-compatible providers or self-hosted Postgres.
 
 No changes to corpus builder contracts are required when swapping only adapter configuration.
+
+## 6. No-LLM Corpus E2E Integration Test
+
+This test runs real `process_video` CV processing with:
+
+- scene understanding disabled (`ENABLE_SCENE_UNDERSTANDING_PIPELINE=false`)
+- corpus build/ingest enabled
+- local Neo4j + pgvector assertions
+- cleanup policy verification
+- canonical real input video from `Test Videos/WhatCarCanYouGetForAGrand.mp4` (no synthetic MP4 fixtures)
+- isolated default DB ports (`bolt://127.0.0.1:17687`, `postgresql://...@127.0.0.1:15433/...`) to avoid conflicts with developer-local DB services
+
+Run with Docker:
+
+```bash
+cd backend
+RUN_CORPUS_E2E_INTEGRATION=1 \
+ENABLE_SCENE_UNDERSTANDING_PIPELINE=false \
+ENABLE_CORPUS_PIPELINE=true \
+ENABLE_CORPUS_INGEST=true \
+uv run pytest tests/integration/test_no_llm_corpus_e2e_integration.py -m integration -vv
+```
+
+Run with Podman:
+
+```bash
+cd backend
+RUN_CORPUS_E2E_INTEGRATION=1 \
+ENABLE_SCENE_UNDERSTANDING_PIPELINE=false \
+ENABLE_CORPUS_PIPELINE=true \
+ENABLE_CORPUS_INGEST=true \
+uv run pytest tests/integration/test_no_llm_corpus_e2e_integration.py -m integration -vv
+```
+
+The test is intentionally opt-in. It is skipped unless `RUN_CORPUS_E2E_INTEGRATION=1`.
+When opt-in is enabled, fixture setup attempts to auto-start local Neo4j + pgvector using
+`podman compose` first (with Docker fallback) before declaring the backends unavailable.
+You can override the default test DB targets by setting `NEO4J_URI` and `PGVECTOR_DSN`.
+
+## 7. Troubleshooting
+
+- Neo4j not reachable: verify `podman compose -f backend/docker-compose.corpus.yml ps` (or Docker equivalent) and confirm `bolt://127.0.0.1:7687`.
+- pgvector not reachable: verify Postgres is listening on `127.0.0.1:5433` and `PGVECTOR_DSN` credentials are correct.
+- pgvector auth error like `role "video_analysis" does not exist`: reset the test-stack volumes and recreate:
+  `podman compose -p video-analysis-corpus-itest -f backend/docker-compose.corpus.yml down -v --remove-orphans && podman compose -p video-analysis-corpus-itest -f backend/docker-compose.corpus.yml up -d` (Docker equivalent if using Docker).
+- Missing DB client libs: run `cd backend && uv sync` to install `neo4j` and `psycopg[binary]`.
+- Test skipped unexpectedly: confirm `RUN_CORPUS_E2E_INTEGRATION=1` is set in the same shell invocation.

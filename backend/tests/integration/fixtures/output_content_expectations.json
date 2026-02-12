@@ -1,0 +1,19 @@
+{
+  "video_filename": "WhatCarCanYouGetForAGrand.mp4",
+  "min_scene_narrative_chars": 25,
+  "min_synopsis_chars": 80,
+  "min_key_moment_chars": 6,
+  "min_topic_anchor_matches": 1,
+  "topic_anchors": [
+    "car",
+    "vehicle",
+    "budget",
+    "price",
+    "buy",
+    "grand",
+    "road",
+    "driving",
+    "bus",
+    "truck"
+  ]
+}

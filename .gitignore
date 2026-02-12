@@ -8,3 +8,4 @@
 .DS_Store
 /Test Videos
 backend/.env.local
+/backend/tmp_media

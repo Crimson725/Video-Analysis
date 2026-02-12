@@ -204,6 +204,34 @@ def _build_graph_bundle(
     unique_source_facts: dict[str, SourceFact] = {item.fact_id: item for item in source_facts}
     unique_claims: dict[str, DerivedClaim] = {item.claim_id: item for item in derived_claims}
 
+    if not unique_nodes and frame_results:
+        frame = frame_results[0]
+        frame_id = int(frame.get("frame_id", 0))
+        timestamp = str(frame.get("timestamp", ""))
+        artifacts = frame.get("analysis_artifacts", {})
+        fallback_anchor = EvidenceAnchor(
+            frame_id=frame_id,
+            timestamp=timestamp,
+            artifact_key=str(artifacts.get("json", "")),
+            text_span="frame_observed",
+        )
+        fallback_node = GraphNode(
+            node_id=_deterministic_id("node", job_id, "frame", frame_id),
+            node_type="frame",
+            label=f"frame_{frame_id}",
+            confidence=1.0,
+            provenance={"source": "frame_analysis_fallback"},
+        )
+        fallback_fact = SourceFact(
+            fact_id=_deterministic_id("fact", job_id, "frame", frame_id),
+            fact_type="frame_observed",
+            confidence=1.0,
+            payload={"frame_id": frame_id},
+            evidence=[fallback_anchor],
+        )
+        unique_nodes[fallback_node.node_id] = fallback_node
+        unique_source_facts[fallback_fact.fact_id] = fallback_fact
+
     return GraphCorpusBundle(
         job_id=job_id,
         nodes=list(unique_nodes.values()),
@@ -213,7 +241,12 @@ def _build_graph_bundle(
     )
 
 
-def _build_retrieval_bundle(*, job_id: str, scene_outputs: dict[str, Any]) -> RetrievalCorpusBundle:
+def _build_retrieval_bundle(
+    *,
+    job_id: str,
+    frame_results: list[dict[str, Any]],
+    scene_outputs: dict[str, Any],
+) -> RetrievalCorpusBundle:
     chunks: list[RetrievalChunkRecord] = []
 
     for scene in scene_outputs.get("scene_narratives", []):
@@ -264,6 +297,31 @@ def _build_retrieval_bundle(*, job_id: str, scene_outputs: dict[str, Any]) -> Re
         )
 
     unique_chunks: dict[str, RetrievalChunkRecord] = {item.chunk_id: item for item in chunks}
+    if not unique_chunks:
+        for frame in frame_results:
+            frame_id = int(frame.get("frame_id", 0))
+            timestamp = str(frame.get("timestamp", ""))
+            analysis = frame.get("analysis", {})
+            labels = [str(item.get("label", "unknown")) for item in analysis.get("object_detection", [])]
+            faces = [str(item.get("identity_id", "face")) for item in analysis.get("face_recognition", [])]
+            descriptor = ", ".join(labels[:6]) or "no_objects"
+            face_descriptor = ", ".join(faces[:4]) or "no_faces"
+            text = (
+                f"Frame {frame_id} at {timestamp} includes objects [{descriptor}] "
+                f"and faces [{face_descriptor}]."
+            )
+            chunk_id = _deterministic_id("chunk", job_id, frame_id, text)
+            artifacts = frame.get("analysis_artifacts", {})
+            unique_chunks[chunk_id] = RetrievalChunkRecord(
+                chunk_id=chunk_id,
+                text=text,
+                metadata={
+                    "job_id": job_id,
+                    "frame_id": frame_id,
+                    "timestamp": timestamp,
+                    "artifact_keys": [str(artifacts.get("json", ""))],
+                },
+            )
     return RetrievalCorpusBundle(job_id=job_id, chunks=list(unique_chunks.values()))
 
 
@@ -337,7 +395,11 @@ def build(
         frame_results=frame_results,
         scene_outputs=scene_outputs,
     )
-    retrieval_bundle = _build_retrieval_bundle(job_id=job_id, scene_outputs=scene_outputs)
+    retrieval_bundle = _build_retrieval_bundle(
+        job_id=job_id,
+        frame_results=frame_results,
+        scene_outputs=scene_outputs,
+    )
     embeddings_bundle = _build_embeddings_bundle(
         job_id=job_id,
         retrieval_bundle=retrieval_bundle,
