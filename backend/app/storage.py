@@ -10,6 +10,7 @@ FrameKind = Literal["original", "seg", "det", "face"]
 AnalysisArtifactKind = Literal["json", "toon"]
 SceneArtifactKind = Literal["packet", "narrative"]
 SummaryArtifactKind = Literal["synopsis"]
+CorpusArtifactKind = Literal["graph", "retrieval", "embeddings"]
 
 _FRAME_PREFIX: dict[FrameKind, str] = {
     "original": "original",
@@ -54,6 +55,18 @@ _SUMMARY_EXTENSION: dict[SummaryArtifactKind, str] = {
 
 _SUMMARY_CONTENT_TYPE: dict[SummaryArtifactKind, str] = {
     "synopsis": "application/json",
+}
+
+_CORPUS_PREFIX: dict[CorpusArtifactKind, str] = {
+    "graph": "graph",
+    "retrieval": "rag",
+    "embeddings": "embeddings",
+}
+
+_CORPUS_CONTENT_TYPE: dict[CorpusArtifactKind, str] = {
+    "graph": "application/json",
+    "retrieval": "application/json",
+    "embeddings": "application/json",
 }
 
 
@@ -105,6 +118,15 @@ class MediaStore(Protocol):
         payload: bytes,
     ) -> str:
         """Upload a generated summary artifact and return the stored object key."""
+
+    def upload_corpus_artifact(
+        self,
+        job_id: str,
+        artifact_kind: CorpusArtifactKind,
+        payload: bytes,
+        filename: str = "bundle.json",
+    ) -> str:
+        """Upload a generated corpus artifact and return the stored object key."""
 
     def read_object(self, object_key: str) -> bytes:
         """Read object bytes for a key."""
@@ -158,6 +180,12 @@ def build_summary_key(job_id: str, artifact_kind: SummaryArtifactKind) -> str:
     """Build deterministic key for a summary artifact object."""
     artifact_ext = _SUMMARY_EXTENSION[artifact_kind]
     return f"jobs/{job_id}/summary/{artifact_kind}.{artifact_ext}"
+
+
+def build_corpus_key(job_id: str, artifact_kind: CorpusArtifactKind, filename: str = "bundle.json") -> str:
+    """Build deterministic key for a corpus artifact object."""
+    safe_filename = filename.strip().replace("/", "_") or "bundle.json"
+    return f"jobs/{job_id}/corpus/{_CORPUS_PREFIX[artifact_kind]}/{safe_filename}"
 
 
 def build_r2_endpoint(account_id: str) -> str:
@@ -258,6 +286,17 @@ class R2MediaStore:
     ) -> str:
         object_key = build_summary_key(job_id, artifact_kind)
         self._put_object(object_key, payload, _SUMMARY_CONTENT_TYPE[artifact_kind])
+        return object_key
+
+    def upload_corpus_artifact(
+        self,
+        job_id: str,
+        artifact_kind: CorpusArtifactKind,
+        payload: bytes,
+        filename: str = "bundle.json",
+    ) -> str:
+        object_key = build_corpus_key(job_id, artifact_kind, filename=filename)
+        self._put_object(object_key, payload, _CORPUS_CONTENT_TYPE[artifact_kind])
         return object_key
 
     def read_object(self, object_key: str) -> bytes:

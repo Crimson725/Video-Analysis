@@ -9,6 +9,7 @@ from app.storage import (
     MediaStoreError,
     R2MediaStore,
     build_analysis_key,
+    build_corpus_key,
     build_frame_key,
     build_r2_endpoint,
     build_scene_key,
@@ -50,6 +51,15 @@ class TestKeyBuilders:
 
     def test_build_synopsis_key(self):
         assert build_summary_key("job-123", "synopsis") == "jobs/job-123/summary/synopsis.json"
+
+    def test_build_graph_corpus_key(self):
+        assert build_corpus_key("job-123", "graph") == "jobs/job-123/corpus/graph/bundle.json"
+
+    def test_build_retrieval_corpus_key_with_filename(self):
+        assert (
+            build_corpus_key("job-123", "retrieval", "scene_0.json")
+            == "jobs/job-123/corpus/rag/scene_0.json"
+        )
 
 
 class TestR2MediaStore:
@@ -195,6 +205,20 @@ class TestR2MediaStore:
             Bucket="bucket-1",
             Key="jobs/job-9/summary/synopsis.json",
             Body=b'{"synopsis":"ok"}',
+            ContentType="application/json",
+        )
+
+    def test_upload_corpus_graph_sets_json_content_type(self):
+        mock_client = MagicMock()
+        store = self._make_store(mock_client)
+
+        object_key = store.upload_corpus_artifact("job-9", "graph", b"{\"nodes\":[]}")
+
+        assert object_key == "jobs/job-9/corpus/graph/bundle.json"
+        mock_client.put_object.assert_called_once_with(
+            Bucket="bucket-1",
+            Key="jobs/job-9/corpus/graph/bundle.json",
+            Body=b"{\"nodes\":[]}",
             ContentType="application/json",
         )
 

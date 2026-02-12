@@ -8,6 +8,7 @@ import pytest
 
 from app.analysis import (
     FaceIdentityTracker,
+    ObjectTrackTracker,
     _to_int_coords,
     analyze_frame,
     run_detection,
@@ -144,11 +145,51 @@ class TestRunDetection:
         )
 
         assert len(items) == 3
+        assert items[0]["track_id"].startswith("person_")
         assert items[0]["label"] == "person"
         assert items[0]["confidence"] == pytest.approx(0.95, abs=1e-5)
         assert items[0]["box"] == [10, 20, 30, 40]
         assert items[1]["label"] == "car"
         assert items[2]["label"] == "dog"
+
+    @patch("app.analysis.cv2.imwrite")
+    def test_track_id_persists_across_frames_with_tracker(
+        self, mock_imwrite, make_yolo_result, static_dir
+    ):
+        first_result = make_yolo_result(
+            boxes=[[10.0, 20.0, 30.0, 40.0]],
+            cls_ids=[0],
+            confs=[0.95],
+            names={0: "person"},
+        )
+        second_result = make_yolo_result(
+            boxes=[[12.0, 21.0, 32.0, 41.0]],
+            cls_ids=[0],
+            confs=[0.96],
+            names={0: "person"},
+        )
+        model = MagicMock()
+        model.side_effect = [[first_result], [second_result]]
+        tracker = ObjectTrackTracker(iou_threshold=0.2, max_frame_gap=3)
+
+        frame_0_items = run_detection(
+            np.zeros((100, 100, 3), dtype=np.uint8),
+            model,
+            "job-1",
+            0,
+            static_dir,
+            object_tracker=tracker,
+        )
+        frame_1_items = run_detection(
+            np.zeros((100, 100, 3), dtype=np.uint8),
+            model,
+            "job-1",
+            1,
+            static_dir,
+            object_tracker=tracker,
+        )
+
+        assert frame_0_items[0]["track_id"] == frame_1_items[0]["track_id"]
 
     @patch("app.analysis.cv2.imwrite")
     def test_no_boxes_returns_empty_list(
@@ -373,8 +414,12 @@ class TestAnalyzeFrame:
         self, mock_seg, mock_det, mock_face, mock_models, static_dir
     ):
         mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
-        mock_det.return_value = [{"label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}]
-        mock_face.return_value = [{"face_id": 1, "confidence": 0.95, "coordinates": [5, 6, 7, 8]}]
+        mock_det.return_value = [
+            {"track_id": "car_1", "label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}
+        ]
+        mock_face.return_value = [
+            {"face_id": 1, "identity_id": "face_1", "confidence": 0.95, "coordinates": [5, 6, 7, 8]}
+        ]
 
         frame_data = {
             "image": np.zeros((100, 100, 3), dtype=np.uint8),
@@ -395,8 +440,11 @@ class TestAnalyzeFrame:
         assert "semantic_segmentation" in result["analysis"]
         assert "object_detection" in result["analysis"]
         assert "face_recognition" in result["analysis"]
+        assert "enrichment" in result["analysis"]
         assert result["analysis_artifacts"]["json"] == "jobs/job-1/analysis/json/frame_0.json"
         assert result["analysis_artifacts"]["toon"] == "jobs/job-1/analysis/toon/frame_0.toon"
+        assert "metadata" in result
+        assert result["metadata"]["provenance"]["job_id"] == "job-1"
         assert len(result["analysis"]["semantic_segmentation"]) == 1
         assert len(result["analysis"]["object_detection"]) == 1
         assert len(result["analysis"]["face_recognition"]) == 1
@@ -413,8 +461,12 @@ class TestAnalyzeFrame:
         self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
     ):
         mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
-        mock_det.return_value = [{"label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}]
-        mock_face.return_value = [{"face_id": 1, "confidence": 0.95, "coordinates": [5, 6, 7, 8]}]
+        mock_det.return_value = [
+            {"track_id": "car_1", "label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}
+        ]
+        mock_face.return_value = [
+            {"face_id": 1, "identity_id": "face_1", "confidence": 0.95, "coordinates": [5, 6, 7, 8]}
+        ]
 
         media_store = MagicMock()
         frame_data = {
@@ -434,6 +486,8 @@ class TestAnalyzeFrame:
         assert json_payload["frame_id"] == 0
         assert set(json_payload["files"].keys()) == {"original", "segmentation", "detection", "face"}
         assert set(json_payload["analysis_artifacts"].keys()) == {"json", "toon"}
+        assert "metadata" in json_payload
+        assert json_payload["analysis"]["object_detection"][0]["track_id"] == "car_1"
         assert second_call.args[0:4] == ("job-1", "toon", 0, b"TOON_DATA")
 
     @patch("app.analysis.convert_json_to_toon", return_value=b"TOON_DATA")
@@ -444,8 +498,12 @@ class TestAnalyzeFrame:
         self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
     ):
         mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
-        mock_det.return_value = [{"label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}]
-        mock_face.return_value = [{"face_id": 1, "confidence": 0.95, "coordinates": [5, 6, 7, 8]}]
+        mock_det.return_value = [
+            {"track_id": "car_1", "label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}
+        ]
+        mock_face.return_value = [
+            {"face_id": 1, "identity_id": "face_1", "confidence": 0.95, "coordinates": [5, 6, 7, 8]}
+        ]
 
         media_store = MagicMock()
         frame_0 = {
@@ -497,8 +555,12 @@ class TestAnalyzeFrame:
         self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
     ):
         mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
-        mock_det.return_value = [{"label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}]
-        mock_face.return_value = [{"face_id": 1, "confidence": 0.95, "coordinates": [5, 6, 7, 8]}]
+        mock_det.return_value = [
+            {"track_id": "car_1", "label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}
+        ]
+        mock_face.return_value = [
+            {"face_id": 1, "identity_id": "face_1", "confidence": 0.95, "coordinates": [5, 6, 7, 8]}
+        ]
 
         media_store = MagicMock()
         frame_data = {

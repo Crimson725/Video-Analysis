@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import operator
 import re
@@ -12,7 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypedDict
 
 from pydantic import BaseModel, Field, ValidationError
 
-from app.storage import build_scene_key, build_summary_key
+from app.storage import build_corpus_key, build_scene_key, build_summary_key
 
 if TYPE_CHECKING:
     from app.config import Settings
@@ -86,6 +87,12 @@ class ScenePacket:
     entities: list[EntityCount]
     events: list[EventCount]
     keyframes: list[KeyframeRef]
+    corpus_entities: list[dict[str, Any]]
+    corpus_events: list[dict[str, Any]]
+    corpus_relations: list[dict[str, Any]]
+    retrieval_chunks: list[dict[str, Any]]
+    graph_bundle_key: str
+    retrieval_bundle_key: str
     toon_payload: str
     packet_key: str
 
@@ -101,6 +108,7 @@ class SceneNarrative:
     key_moments: list[str]
     packet_key: str
     narrative_key: str
+    corpus: dict[str, Any] | None
     trace: dict[str, str] | None
 
 
@@ -400,6 +408,266 @@ def _select_keyframes(
     return refs
 
 
+def _deterministic_id(prefix: str, *parts: Any) -> str:
+    raw = "::".join(str(part) for part in parts)
+    return f"{prefix}_{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _build_evidence_anchor(frame: dict[str, Any], *, bbox: list[int] | None, text_span: str) -> dict[str, Any]:
+    analysis_artifacts = frame.get("analysis_artifacts", {})
+    return {
+        "frame_id": int(frame.get("frame_id", 0)),
+        "timestamp": str(frame.get("timestamp", "")),
+        "artifact_key": str(analysis_artifacts.get("json", "")),
+        "bbox": bbox,
+        "text_span": text_span,
+    }
+
+
+def _collect_corpus_entities(
+    *,
+    job_id: str,
+    scene_id: int,
+    scene_frames: list[dict[str, Any]],
+    start_sec: float,
+    end_sec: float,
+) -> tuple[list[dict[str, Any]], dict[int, list[str]]]:
+    """Aggregate scene entities with temporal spans and evidence anchors."""
+    accum: dict[tuple[str, str], dict[str, Any]] = {}
+    frame_entity_ids: dict[int, list[str]] = {}
+
+    for frame in scene_frames:
+        frame_id = int(frame.get("frame_id", 0))
+        ts = _parse_timestamp_seconds(str(frame.get("timestamp", "")))
+        analysis = frame.get("analysis", {})
+
+        for det in analysis.get("object_detection", []):
+            label = str(det.get("label", "unknown"))
+            track_id = str(det.get("track_id", "")) or _deterministic_id(
+                "track",
+                job_id,
+                scene_id,
+                frame_id,
+                label,
+            )
+            key = ("object", track_id)
+            entity_id = _deterministic_id("entity", job_id, scene_id, key[0], key[1], label)
+            evidence = _build_evidence_anchor(frame, bbox=det.get("box"), text_span=label)
+            slot = accum.setdefault(
+                key,
+                {
+                    "entity_id": entity_id,
+                    "label": label,
+                    "entity_type": "object",
+                    "count": 0,
+                    "confidence_sum": 0.0,
+                    "first_seen": ts,
+                    "last_seen": ts,
+                    "track_id": track_id,
+                    "identity_id": None,
+                    "evidence": [],
+                },
+            )
+            slot["count"] += 1
+            slot["confidence_sum"] += float(det.get("confidence", 0.0))
+            slot["first_seen"] = min(float(slot["first_seen"]), ts)
+            slot["last_seen"] = max(float(slot["last_seen"]), ts)
+            slot["evidence"].append(evidence)
+            frame_entity_ids.setdefault(frame_id, []).append(entity_id)
+
+        for face in analysis.get("face_recognition", []):
+            identity_id = str(face.get("identity_id", "")) or _deterministic_id(
+                "identity",
+                job_id,
+                scene_id,
+                frame_id,
+                face.get("face_id"),
+            )
+            key = ("person", identity_id)
+            entity_id = _deterministic_id("entity", job_id, scene_id, key[0], key[1], "person")
+            evidence = _build_evidence_anchor(
+                frame,
+                bbox=face.get("coordinates"),
+                text_span=identity_id,
+            )
+            slot = accum.setdefault(
+                key,
+                {
+                    "entity_id": entity_id,
+                    "label": identity_id,
+                    "entity_type": "person",
+                    "count": 0,
+                    "confidence_sum": 0.0,
+                    "first_seen": ts,
+                    "last_seen": ts,
+                    "track_id": None,
+                    "identity_id": identity_id,
+                    "evidence": [],
+                },
+            )
+            slot["count"] += 1
+            slot["confidence_sum"] += float(face.get("confidence", 0.0))
+            slot["first_seen"] = min(float(slot["first_seen"]), ts)
+            slot["last_seen"] = max(float(slot["last_seen"]), ts)
+            slot["evidence"].append(evidence)
+            frame_entity_ids.setdefault(frame_id, []).append(entity_id)
+
+    entities: list[dict[str, Any]] = []
+    for slot in accum.values():
+        count = max(1, int(slot["count"]))
+        first_seen = max(start_sec, float(slot["first_seen"]))
+        last_seen = min(end_sec, float(slot["last_seen"]))
+        entities.append(
+            {
+                "entity_id": slot["entity_id"],
+                "label": slot["label"],
+                "entity_type": slot["entity_type"],
+                "count": count,
+                "confidence": float(slot["confidence_sum"]) / count,
+                "temporal_span": {
+                    "first_seen": first_seen,
+                    "last_seen": last_seen,
+                    "duration_sec": max(0.0, last_seen - first_seen),
+                },
+                "evidence": slot["evidence"][:5],
+                "track_id": slot["track_id"],
+                "identity_id": slot["identity_id"],
+            }
+        )
+
+    entities.sort(key=lambda item: (-int(item["count"]), str(item["label"])))
+    return entities, frame_entity_ids
+
+
+def _collect_corpus_events(
+    *,
+    job_id: str,
+    scene_id: int,
+    entities: list[dict[str, Any]],
+    start_sec: float,
+    end_sec: float,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for entity in entities:
+        event_type = f"{entity['entity_type']}_observed"
+        events.append(
+            {
+                "event_id": _deterministic_id(
+                    "event",
+                    job_id,
+                    scene_id,
+                    event_type,
+                    entity["entity_id"],
+                ),
+                "event_type": event_type,
+                "count": int(entity["count"]),
+                "confidence": float(entity["confidence"]),
+                "temporal_span": {
+                    "first_seen": max(start_sec, float(entity["temporal_span"]["first_seen"])),
+                    "last_seen": min(end_sec, float(entity["temporal_span"]["last_seen"])),
+                    "duration_sec": float(entity["temporal_span"]["duration_sec"]),
+                },
+                "evidence": list(entity["evidence"])[:3],
+            }
+        )
+    return events
+
+
+def _collect_corpus_relations(
+    *,
+    job_id: str,
+    scene_id: int,
+    scene_frames: list[dict[str, Any]],
+    frame_entity_ids: dict[int, list[str]],
+    start_sec: float,
+    end_sec: float,
+) -> list[dict[str, Any]]:
+    relation_counts: dict[tuple[str, str], dict[str, Any]] = {}
+    for frame in scene_frames:
+        frame_id = int(frame.get("frame_id", 0))
+        entity_ids = sorted(set(frame_entity_ids.get(frame_id, [])))
+        if len(entity_ids) < 2:
+            continue
+        ts = _parse_timestamp_seconds(str(frame.get("timestamp", "")))
+        for index, source_id in enumerate(entity_ids):
+            for target_id in entity_ids[index + 1 :]:
+                key = (source_id, target_id)
+                slot = relation_counts.setdefault(
+                    key,
+                    {
+                        "count": 0,
+                        "first_seen": ts,
+                        "last_seen": ts,
+                        "evidence": [],
+                    },
+                )
+                slot["count"] += 1
+                slot["first_seen"] = min(float(slot["first_seen"]), ts)
+                slot["last_seen"] = max(float(slot["last_seen"]), ts)
+                slot["evidence"].append(
+                    _build_evidence_anchor(frame, bbox=None, text_span="co_occurs_with")
+                )
+
+    relations: list[dict[str, Any]] = []
+    for (source_id, target_id), slot in relation_counts.items():
+        first_seen = max(start_sec, float(slot["first_seen"]))
+        last_seen = min(end_sec, float(slot["last_seen"]))
+        relations.append(
+            {
+                "relation_id": _deterministic_id(
+                    "relation",
+                    job_id,
+                    scene_id,
+                    source_id,
+                    "co_occurs_with",
+                    target_id,
+                ),
+                "source_entity_id": source_id,
+                "target_entity_id": target_id,
+                "predicate": "co_occurs_with",
+                "confidence": min(1.0, 0.2 + 0.2 * int(slot["count"])),
+                "temporal_span": {
+                    "first_seen": first_seen,
+                    "last_seen": last_seen,
+                    "duration_sec": max(0.0, last_seen - first_seen),
+                },
+                "evidence": slot["evidence"][:5],
+            }
+        )
+    return relations
+
+
+def _build_retrieval_chunks(
+    *,
+    job_id: str,
+    scene_id: int,
+    start_sec: float,
+    end_sec: float,
+    entities: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    packet_key: str,
+) -> list[dict[str, Any]]:
+    entity_text = ", ".join(str(entity["label"]) for entity in entities[:6]) or "none"
+    event_text = ", ".join(str(event["event_type"]) for event in events[:6]) or "none"
+    text = (
+        f"Scene {scene_id} ({start_sec:.2f}s-{end_sec:.2f}s) entities: {entity_text}. "
+        f"Events: {event_text}."
+    )
+    return [
+        {
+            "chunk_id": _deterministic_id("chunk", job_id, scene_id, text),
+            "text": text,
+            "source_entity_ids": [str(entity["entity_id"]) for entity in entities[:8]],
+            "artifact_keys": [packet_key],
+            "temporal_span": {
+                "first_seen": start_sec,
+                "last_seen": end_sec,
+                "duration_sec": max(0.0, end_sec - start_sec),
+            },
+        }
+    ]
+
+
 def serialize_scene_packet_toon(packet: ScenePacket) -> str:
     """Serialize scene packet with deterministic compact TOON ordering."""
     lines = [
@@ -493,6 +761,39 @@ def _build_scene_packets(
         events = _collect_events(entities, faces_total, settings)
 
         packet_key = build_scene_key(job_id, "packet", scene_id)
+        graph_bundle_key = build_corpus_key(job_id, "graph", f"scene_{scene_id}.json")
+        retrieval_bundle_key = build_corpus_key(job_id, "retrieval", f"scene_{scene_id}.json")
+        corpus_entities, frame_entity_ids = _collect_corpus_entities(
+            job_id=job_id,
+            scene_id=scene_id,
+            scene_frames=scene_frames,
+            start_sec=float(start_sec),
+            end_sec=float(end_sec),
+        )
+        corpus_events = _collect_corpus_events(
+            job_id=job_id,
+            scene_id=scene_id,
+            entities=corpus_entities,
+            start_sec=float(start_sec),
+            end_sec=float(end_sec),
+        )
+        corpus_relations = _collect_corpus_relations(
+            job_id=job_id,
+            scene_id=scene_id,
+            scene_frames=scene_frames,
+            frame_entity_ids=frame_entity_ids,
+            start_sec=float(start_sec),
+            end_sec=float(end_sec),
+        )
+        retrieval_chunks = _build_retrieval_chunks(
+            job_id=job_id,
+            scene_id=scene_id,
+            start_sec=float(start_sec),
+            end_sec=float(end_sec),
+            entities=corpus_entities,
+            events=corpus_events,
+            packet_key=packet_key,
+        )
         packet = ScenePacket(
             scene_id=scene_id,
             start_sec=float(start_sec),
@@ -504,6 +805,12 @@ def _build_scene_packets(
             entities=entities,
             events=events,
             keyframes=keyframes,
+            corpus_entities=corpus_entities,
+            corpus_events=corpus_events,
+            corpus_relations=corpus_relations,
+            retrieval_chunks=retrieval_chunks,
+            graph_bundle_key=graph_bundle_key,
+            retrieval_bundle_key=retrieval_bundle_key,
             toon_payload="",
             packet_key=packet_key,
         )
@@ -555,12 +862,36 @@ def _generate_narratives(
             "key_moments": parsed.key_moments,
             "packet": packet.packet_key,
         }
+        scene_corpus_payload = {
+            "scene_id": packet.scene_id,
+            "entities": packet.corpus_entities,
+            "events": packet.corpus_events,
+            "relations": packet.corpus_relations,
+            "retrieval_chunks": packet.retrieval_chunks,
+            "artifacts": {
+                "graph_bundle": packet.graph_bundle_key,
+                "retrieval_bundle": packet.retrieval_bundle_key,
+            },
+        }
         media_store.upload_scene_artifact(
             job_id=job_id,
             artifact_kind="narrative",
             scene_id=packet.scene_id,
             payload=json.dumps(narrative_payload, separators=(",", ":")).encode("utf-8"),
         )
+        if hasattr(media_store, "upload_corpus_artifact"):
+            media_store.upload_corpus_artifact(
+                job_id=job_id,
+                artifact_kind="graph",
+                payload=json.dumps(scene_corpus_payload, separators=(",", ":")).encode("utf-8"),
+                filename=f"scene_{packet.scene_id}.json",
+            )
+            media_store.upload_corpus_artifact(
+                job_id=job_id,
+                artifact_kind="retrieval",
+                payload=json.dumps(scene_corpus_payload, separators=(",", ":")).encode("utf-8"),
+                filename=f"scene_{packet.scene_id}.json",
+            )
         narratives.append(
             SceneNarrative(
                 scene_id=packet.scene_id,
@@ -570,6 +901,7 @@ def _generate_narratives(
                 key_moments=parsed.key_moments,
                 packet_key=packet.packet_key,
                 narrative_key=narrative_key,
+                corpus=scene_corpus_payload | {"narrative_paragraph": parsed.narrative_paragraph},
                 trace=_trace_metadata(
                     settings,
                     stage="scene_narrative",
@@ -713,6 +1045,7 @@ def _run_with_langgraph(
                 "narrative_paragraph": item.narrative_paragraph,
                 "key_moments": item.key_moments,
                 "artifacts": {"packet": item.packet_key, "narrative": item.narrative_key},
+                "corpus": item.corpus,
                 "trace": item.trace,
             }
             for item in narratives
@@ -777,6 +1110,7 @@ def run_scene_understanding_pipeline(
                 "narrative_paragraph": item.narrative_paragraph,
                 "key_moments": item.key_moments,
                 "artifacts": {"packet": item.packet_key, "narrative": item.narrative_key},
+                "corpus": item.corpus,
                 "trace": item.trace,
             }
             for item in sort_scene_narratives(scene_narratives)

@@ -30,6 +30,20 @@ uv run python run.py
 - `GET /status/{job_id}` - Poll job status
 - `GET /results/{job_id}` - Get analysis JSON with signed R2 file URLs when completed
 
+## Corpus/KG/RAG Pipeline Flags
+
+Set these to enable corpus construction and optional local ingest:
+
+- `ENABLE_CORPUS_PIPELINE` - build graph/retrieval/embeddings bundles after scene understanding (`false` default)
+- `ENABLE_CORPUS_INGEST` - ingest bundles into configured graph/vector adapters (`false` default)
+- `GRAPH_BACKEND` - `neo4j` or `memory`
+- `VECTOR_BACKEND` - `pgvector` or `memory`
+- `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`
+- `PGVECTOR_DSN`
+- `EMBEDDING_MODEL_ID`, `EMBEDDING_MODEL_VERSION`, `EMBEDDING_DIMENSION`
+
+Local stack setup guide: `/Users/crimson2049/Video Analysis/backend/docs/local-corpus-stack.md`
+
 ## Cloudflare R2 Configuration
 
 Set the following environment variables before running the API:

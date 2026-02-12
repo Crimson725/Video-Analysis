@@ -80,12 +80,30 @@ def _frame(frame_id: int, timestamp: str, labels: list[str], faces: int = 0) -> 
         },
         "analysis": {
             "semantic_segmentation": [],
-            "object_detection": [{"label": label, "confidence": 0.9, "box": [0, 0, 1, 1]} for label in labels],
-            "face_recognition": [{"face_id": i + 1, "confidence": 0.95, "coordinates": [0, 0, 1, 1]} for i in range(faces)],
+            "object_detection": [
+                {"track_id": f"{label}_{frame_id}_{index}", "label": label, "confidence": 0.9, "box": [0, 0, 1, 1]}
+                for index, label in enumerate(labels, start=1)
+            ],
+            "face_recognition": [
+                {"face_id": i + 1, "identity_id": f"face_{i + 1}", "confidence": 0.95, "coordinates": [0, 0, 1, 1]}
+                for i in range(faces)
+            ],
+            "enrichment": {},
         },
         "analysis_artifacts": {
             "json": f"jobs/job-1/analysis/json/frame_{frame_id}.json",
             "toon": f"jobs/job-1/analysis/toon/frame_{frame_id}.toon",
+        },
+        "metadata": {
+            "provenance": {
+                "job_id": "job-1",
+                "scene_id": None,
+                "frame_id": frame_id,
+                "timestamp": timestamp,
+                "source_artifact_key": f"jobs/job-1/frames/original/frame_{frame_id}.jpg",
+            },
+            "model_provenance": [],
+            "evidence_anchors": [],
         },
     }
 

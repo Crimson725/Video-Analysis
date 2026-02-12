@@ -1,6 +1,7 @@
 """Frame analysis pipeline: segmentation, detection, face recognition."""
 
 from dataclasses import dataclass
+import hashlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,6 +31,16 @@ class _FaceTrack:
     """Internal state for a tracked anonymous face identity."""
 
     identity_num: int
+    box: tuple[int, int, int, int]
+    last_frame_id: int
+
+
+@dataclass
+class _ObjectTrack:
+    """Internal state for a tracked object identity."""
+
+    track_num: int
+    label: str
     box: tuple[int, int, int, int]
     last_frame_id: int
 
@@ -112,6 +123,87 @@ class FaceIdentityTracker:
             last_frame_id=frame_id,
         )
         return identity_num
+
+
+class ObjectTrackTracker:
+    """Assign stable object track IDs across nearby frames by label + IoU."""
+
+    def __init__(self, iou_threshold: float = 0.25, max_frame_gap: int = 2) -> None:
+        self.iou_threshold = iou_threshold
+        self.max_frame_gap = max_frame_gap
+        self._next_track_num = 1
+        self._tracks: dict[int, _ObjectTrack] = {}
+
+    @staticmethod
+    def _intersection_over_union(
+        box_a: tuple[int, int, int, int], box_b: tuple[int, int, int, int]
+    ) -> float:
+        ax1, ay1, ax2, ay2 = box_a
+        bx1, by1, bx2, by2 = box_b
+
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+        inter_w = max(0, inter_x2 - inter_x1)
+        inter_h = max(0, inter_y2 - inter_y1)
+        inter_area = inter_w * inter_h
+        if inter_area <= 0:
+            return 0.0
+
+        area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+        area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+        union = area_a + area_b - inter_area
+        if union <= 0:
+            return 0.0
+        return inter_area / union
+
+    def _drop_stale_tracks(self, frame_id: int) -> None:
+        stale = [
+            track_num
+            for track_num, track in self._tracks.items()
+            if frame_id - track.last_frame_id > self.max_frame_gap
+        ]
+        for track_num in stale:
+            del self._tracks[track_num]
+
+    def assign_track(
+        self,
+        label: str,
+        box: tuple[int, int, int, int],
+        frame_id: int,
+        used_track_nums: set[int],
+    ) -> int:
+        """Return a stable track number for the current object box."""
+        self._drop_stale_tracks(frame_id)
+        best_track_num: int | None = None
+        best_iou = 0.0
+
+        for track_num, track in self._tracks.items():
+            if track_num in used_track_nums:
+                continue
+            if track.label != label:
+                continue
+            iou = self._intersection_over_union(box, track.box)
+            if iou > best_iou:
+                best_iou = iou
+                best_track_num = track_num
+
+        if best_track_num is not None and best_iou >= self.iou_threshold:
+            matched = self._tracks[best_track_num]
+            matched.box = box
+            matched.last_frame_id = frame_id
+            return best_track_num
+
+        track_num = self._next_track_num
+        self._next_track_num += 1
+        self._tracks[track_num] = _ObjectTrack(
+            track_num=track_num,
+            label=label,
+            box=box,
+            last_frame_id=frame_id,
+        )
+        return track_num
 
 
 def _to_int_coords(coord: float) -> int:
@@ -225,6 +317,7 @@ def run_detection(
     frame_id: int,
     local_dir: str | None,
     media_store: "MediaStore | None" = None,
+    object_tracker: ObjectTrackTracker | None = None,
 ) -> list[dict]:
     """Run YOLO detection, persist visualization, and return structured data."""
     results = model(image, verbose=False)
@@ -243,20 +336,48 @@ def run_detection(
     xyxy = result.boxes.xyxy.cpu().numpy()
     conf = result.boxes.conf.cpu().numpy()
     cls_ids = result.boxes.cls.cpu().numpy()
+    box_ids = None
+    if hasattr(result.boxes, "id") and result.boxes.id is not None:
+        try:
+            box_ids = result.boxes.id.cpu().numpy()
+        except Exception:
+            box_ids = None
+    used_track_nums: set[int] = set()
     for index, box in enumerate(xyxy):
         score = conf[index]
         cls_id = cls_ids[index]
         label = names.get(int(cls_id), str(int(cls_id)))
+        x1 = _to_int_coords(box[0])
+        y1 = _to_int_coords(box[1])
+        x2 = _to_int_coords(box[2])
+        y2 = _to_int_coords(box[3])
+        box_tuple = (x1, y1, x2, y2)
+
+        if box_ids is not None and index < len(box_ids):
+            raw_track = box_ids[index]
+            if raw_track is None or (isinstance(raw_track, float) and np.isnan(raw_track)):
+                track_num = index + 1
+            else:
+                track_num = int(raw_track)
+        elif object_tracker is not None:
+            track_num = object_tracker.assign_track(
+                label=label,
+                box=box_tuple,
+                frame_id=frame_id,
+                used_track_nums=used_track_nums,
+            )
+        else:
+            # Deterministic fallback when tracker outputs are unavailable.
+            seed = f"{job_id}:{frame_id}:{label}:{index}".encode("utf-8")
+            track_num = int(hashlib.sha1(seed).hexdigest()[:8], 16)
+
+        used_track_nums.add(track_num)
         items.append(
             {
+                "track_id": f"{label}_{track_num}",
                 "label": label,
                 "confidence": float(score),
-                "box": [
-                    _to_int_coords(box[0]),
-                    _to_int_coords(box[1]),
-                    _to_int_coords(box[2]),
-                    _to_int_coords(box[3]),
-                ],
+                "box": [x1, y1, x2, y2],
             }
         )
     return items
@@ -368,6 +489,244 @@ def _persist_analysis_artifacts(
         ) from exc
 
 
+def _extract_model_provenance(component: str, model: Any, threshold: float | None = None) -> dict[str, Any]:
+    """Build a compact model provenance entry for frame metadata."""
+    model_id = (
+        getattr(model, "model_name", None)
+        or getattr(model, "name", None)
+        or getattr(model, "__class__", type(model)).__name__
+    )
+    model_version = (
+        getattr(model, "model_version", None)
+        or getattr(model, "version", None)
+        or getattr(model, "ckpt_path", None)
+        or "unknown"
+    )
+    return {
+        "component": str(component),
+        "model_id": str(model_id),
+        "model_version": str(model_version),
+        "threshold": threshold,
+    }
+
+
+def _invoke_optional_enricher(enricher: Any, image: np.ndarray, frame_id: int) -> Any:
+    """Invoke optional enrichment callables with flexible signatures."""
+    try:
+        return enricher(image=image, frame_id=frame_id)
+    except TypeError:
+        try:
+            return enricher(image, frame_id)
+        except TypeError:
+            return enricher(image)
+
+
+def _normalize_ocr_blocks(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    blocks: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        bbox = item.get("bbox") or item.get("box") or [0, 0, 0, 0]
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            bbox = [0, 0, 0, 0]
+        blocks.append(
+            {
+                "text": str(item.get("text", "")).strip(),
+                "confidence": float(item.get("confidence", 0.0)),
+                "bbox": [_to_int_coords(float(coord)) for coord in bbox],
+            }
+        )
+    return blocks
+
+
+def _normalize_actions(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    actions: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        actions.append(
+            {
+                "label": str(item.get("label", "unknown")),
+                "confidence": float(item.get("confidence", 0.0)),
+            }
+        )
+    return actions
+
+
+def _normalize_poses(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    poses: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        keypoints_raw = item.get("keypoints", [])
+        keypoints: list[dict[str, Any]] = []
+        if isinstance(keypoints_raw, list):
+            for point in keypoints_raw:
+                if not isinstance(point, dict):
+                    continue
+                keypoints.append(
+                    {
+                        "x": float(point.get("x", 0.0)),
+                        "y": float(point.get("y", 0.0)),
+                        "confidence": float(point.get("confidence", 0.0)),
+                    }
+                )
+        poses.append(
+            {
+                "track_id": str(item.get("track_id", "")) or "unknown_track",
+                "confidence": float(item.get("confidence", 0.0)),
+                "keypoints": keypoints,
+            }
+        )
+    return poses
+
+
+def _normalize_camera_motion(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    return {
+        "label": str(raw.get("label", "static")),
+        "confidence": float(raw.get("confidence", 0.0)),
+    }
+
+
+def _normalize_quality(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    return {
+        "blur_score": (
+            float(raw.get("blur_score"))
+            if raw.get("blur_score") is not None
+            else None
+        ),
+        "is_blurry": (
+            bool(raw.get("is_blurry")) if raw.get("is_blurry") is not None else None
+        ),
+        "is_occluded": (
+            bool(raw.get("is_occluded")) if raw.get("is_occluded") is not None else None
+        ),
+    }
+
+
+def _collect_enrichment_payload(models: Any, image: np.ndarray, frame_id: int) -> dict[str, Any]:
+    """Run optional enrichment hooks and normalize outputs."""
+    ocr_raw = []
+    action_raw = []
+    pose_raw = []
+    camera_motion_raw = None
+    quality_raw = None
+
+    if hasattr(models, "ocr_enricher") and callable(models.ocr_enricher):
+        ocr_raw = _invoke_optional_enricher(models.ocr_enricher, image, frame_id)
+    if hasattr(models, "action_enricher") and callable(models.action_enricher):
+        action_raw = _invoke_optional_enricher(models.action_enricher, image, frame_id)
+    if hasattr(models, "pose_enricher") and callable(models.pose_enricher):
+        pose_raw = _invoke_optional_enricher(models.pose_enricher, image, frame_id)
+    if hasattr(models, "camera_motion_enricher") and callable(models.camera_motion_enricher):
+        camera_motion_raw = _invoke_optional_enricher(
+            models.camera_motion_enricher, image, frame_id
+        )
+    if hasattr(models, "quality_enricher") and callable(models.quality_enricher):
+        quality_raw = _invoke_optional_enricher(models.quality_enricher, image, frame_id)
+
+    return {
+        "ocr_blocks": _normalize_ocr_blocks(ocr_raw),
+        "actions": _normalize_actions(action_raw),
+        "poses": _normalize_poses(pose_raw),
+        "camera_motion": _normalize_camera_motion(camera_motion_raw),
+        "quality": _normalize_quality(quality_raw),
+    }
+
+
+def _build_evidence_anchors(
+    *,
+    frame_id: int,
+    timestamp: str,
+    analysis_artifact_key: str,
+    det_items: list[dict[str, Any]],
+    face_items: list[dict[str, Any]],
+    enrichment: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build frame-level evidence anchors used by corpus contracts."""
+    anchors: list[dict[str, Any]] = []
+    for item in det_items:
+        anchors.append(
+            {
+                "frame_id": frame_id,
+                "timestamp": timestamp,
+                "artifact_key": analysis_artifact_key,
+                "bbox": item.get("box"),
+                "text_span": item.get("label"),
+            }
+        )
+    for item in face_items:
+        anchors.append(
+            {
+                "frame_id": frame_id,
+                "timestamp": timestamp,
+                "artifact_key": analysis_artifact_key,
+                "bbox": item.get("coordinates"),
+                "text_span": item.get("identity_id"),
+            }
+        )
+    for block in enrichment.get("ocr_blocks", []):
+        anchors.append(
+            {
+                "frame_id": frame_id,
+                "timestamp": timestamp,
+                "artifact_key": analysis_artifact_key,
+                "bbox": block.get("bbox"),
+                "text_span": block.get("text"),
+            }
+        )
+    return anchors
+
+
+def _build_frame_metadata(
+    *,
+    job_id: str,
+    frame_id: int,
+    timestamp: str,
+    source_artifact_key: str,
+    models: Any,
+    evidence_anchors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build frame metadata contract for corpus grounding."""
+    model_entries = [
+        _extract_model_provenance("detector", getattr(models, "detector", None), threshold=0.0),
+        _extract_model_provenance("segmenter", getattr(models, "segmenter", None), threshold=0.0),
+        _extract_model_provenance("face_detector", getattr(models, "face_detector", None), threshold=0.9),
+    ]
+    for component in (
+        "ocr_enricher",
+        "action_enricher",
+        "pose_enricher",
+        "camera_motion_enricher",
+        "quality_enricher",
+    ):
+        model = getattr(models, component, None)
+        if model is not None:
+            model_entries.append(_extract_model_provenance(component, model, threshold=None))
+
+    return {
+        "provenance": {
+            "job_id": job_id,
+            "scene_id": None,
+            "frame_id": frame_id,
+            "timestamp": timestamp,
+            "source_artifact_key": source_artifact_key,
+        },
+        "model_provenance": model_entries,
+        "evidence_anchors": evidence_anchors,
+    }
+
+
 def analyze_frame(
     frame_data: dict,
     models: Any,
@@ -375,6 +734,7 @@ def analyze_frame(
     local_dir: str | None,
     media_store: "MediaStore | None" = None,
     face_tracker: FaceIdentityTracker | None = None,
+    object_tracker: ObjectTrackTracker | None = None,
 ) -> dict:
     """Run all three analysis tasks on a frame and return FrameResult-compatible dict."""
     image = frame_data["image"]
@@ -385,7 +745,13 @@ def analyze_frame(
         image, models.segmenter, job_id, frame_id, local_dir, media_store
     )
     det_items = run_detection(
-        image, models.detector, job_id, frame_id, local_dir, media_store
+        image,
+        models.detector,
+        job_id,
+        frame_id,
+        local_dir,
+        media_store,
+        object_tracker=object_tracker,
     )
     face_items = run_face_recognition(
         image,
@@ -396,8 +762,26 @@ def analyze_frame(
         media_store,
         face_tracker=face_tracker,
     )
+    enrichment = _collect_enrichment_payload(models, image, frame_id)
 
     files = _build_frame_files(job_id, frame_id, media_store)
+    analysis_key = build_analysis_key(job_id, "json", frame_id)
+    evidence_anchors = _build_evidence_anchors(
+        frame_id=frame_id,
+        timestamp=timestamp,
+        analysis_artifact_key=analysis_key,
+        det_items=det_items,
+        face_items=face_items,
+        enrichment=enrichment,
+    )
+    metadata = _build_frame_metadata(
+        job_id=job_id,
+        frame_id=frame_id,
+        timestamp=timestamp,
+        source_artifact_key=files["original"],
+        models=models,
+        evidence_anchors=evidence_anchors,
+    )
 
     frame_payload: dict[str, Any] = {
         "frame_id": frame_id,
@@ -407,11 +791,13 @@ def analyze_frame(
             "semantic_segmentation": seg_items,
             "object_detection": det_items,
             "face_recognition": face_items,
+            "enrichment": enrichment,
         },
         "analysis_artifacts": {
-            "json": build_analysis_key(job_id, "json", frame_id),
+            "json": analysis_key,
             "toon": build_analysis_key(job_id, "toon", frame_id),
         },
+        "metadata": metadata,
     }
 
     if media_store is not None:

@@ -90,6 +90,17 @@ class TestProcessVideoStorageFailures:
                 "json": "jobs/job-x/analysis/json/frame_0.json",
                 "toon": "jobs/job-x/analysis/toon/frame_0.toon",
             },
+            "metadata": {
+                "provenance": {
+                    "job_id": "job-x",
+                    "scene_id": None,
+                    "frame_id": 0,
+                    "timestamp": "00:00:01.000",
+                    "source_artifact_key": "jobs/job-x/frames/original/frame_0.jpg",
+                },
+                "model_provenance": [],
+                "evidence_anchors": [],
+            },
         },
     )
     @patch("app.main.ModelLoader")

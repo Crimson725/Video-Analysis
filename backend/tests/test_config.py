@@ -18,12 +18,27 @@ class TestSettings:
 
     def test_scene_pipeline_defaults(self, monkeypatch):
         monkeypatch.delenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", raising=False)
+        monkeypatch.delenv("ENABLE_CORPUS_PIPELINE", raising=False)
+        monkeypatch.delenv("ENABLE_CORPUS_INGEST", raising=False)
         monkeypatch.delenv("SCENE_MODEL_ID", raising=False)
         monkeypatch.delenv("SYNOPSIS_MODEL_ID", raising=False)
         settings = Settings.from_env(autoload_dotenv=False)
         assert settings.enable_scene_understanding_pipeline is False
+        assert settings.enable_corpus_pipeline is False
+        assert settings.enable_corpus_ingest is False
         assert settings.scene_model_id == "gemini-2.5-flash-lite"
         assert settings.synopsis_model_id == "gemini-2.5-flash-lite"
+
+    def test_corpus_settings_parse(self, monkeypatch):
+        monkeypatch.setenv("ENABLE_CORPUS_PIPELINE", "true")
+        monkeypatch.setenv("ENABLE_CORPUS_INGEST", "true")
+        monkeypatch.setenv("GRAPH_BACKEND", "memory")
+        monkeypatch.setenv("VECTOR_BACKEND", "memory")
+        settings = Settings.from_env(autoload_dotenv=False)
+        assert settings.enable_corpus_pipeline is True
+        assert settings.enable_corpus_ingest is True
+        assert settings.graph_backend == "memory"
+        assert settings.vector_backend == "memory"
 
     def test_missing_llm_fields_only_when_pipeline_enabled(self, monkeypatch):
         monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")

@@ -12,7 +12,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import analysis, cleanup, jobs, scene, video_understanding
+from app import analysis, cleanup, corpus, corpus_ingest, jobs, scene, video_understanding
 from app.config import Settings
 from app.models import ModelLoader
 from app.schemas import JobResult, JobStatus
@@ -58,6 +58,11 @@ def _startup_validate_settings() -> None:
                 "Gemini client may be unavailable and runtime will use fallback generation.",
                 ", ".join(missing_llm),
             )
+    if SETTINGS.enable_corpus_ingest and not SETTINGS.enable_corpus_pipeline:
+        logger.warning(
+            "Corpus ingest is enabled while corpus build is disabled. "
+            "Set ENABLE_CORPUS_PIPELINE=true to produce ingestable artifacts."
+        )
 
 
 def _extract_source_extension(filename: str | None) -> str:
@@ -111,6 +116,7 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
         "frames": [],
         "scene_narratives": [],
         "video_synopsis": None,
+        "corpus": None,
     }
     for frame in result_payload.get("frames", []):
         files: dict[str, str] = {}
@@ -125,14 +131,51 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
             "json": _to_signed_url_if_needed(raw_artifacts.get("json"), media_store),
             "toon": _to_signed_url_if_needed(raw_artifacts.get("toon"), media_store),
         }
+        frame_id = int(frame.get("frame_id", 0))
+        timestamp = str(frame.get("timestamp", ""))
+        raw_analysis = frame.get("analysis", {})
+        object_detection = []
+        for index, item in enumerate(raw_analysis.get("object_detection", [])):
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            normalized["track_id"] = normalized.get("track_id") or f"track_{frame_id}_{index + 1}"
+            object_detection.append(normalized)
+        face_recognition = []
+        for index, item in enumerate(raw_analysis.get("face_recognition", [])):
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            normalized["identity_id"] = normalized.get("identity_id") or f"face_{index + 1}"
+            face_recognition.append(normalized)
+
+        metadata = frame.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {
+                "provenance": {
+                    "job_id": str(result_payload.get("job_id", "")),
+                    "scene_id": None,
+                    "frame_id": frame_id,
+                    "timestamp": timestamp,
+                    "source_artifact_key": files.get("original", ""),
+                },
+                "model_provenance": [],
+                "evidence_anchors": [],
+            }
 
         payload["frames"].append(
             {
-                "frame_id": frame.get("frame_id"),
-                "timestamp": frame.get("timestamp"),
+                "frame_id": frame_id,
+                "timestamp": timestamp,
                 "files": files,
-                "analysis": frame.get("analysis", {}),
+                "analysis": {
+                    "semantic_segmentation": raw_analysis.get("semantic_segmentation", []),
+                    "object_detection": object_detection,
+                    "face_recognition": face_recognition,
+                    "enrichment": raw_analysis.get("enrichment", {}),
+                },
                 "analysis_artifacts": analysis_artifacts,
+                "metadata": metadata,
             }
         )
 
@@ -149,6 +192,21 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
                     "packet": _to_signed_url_if_needed(raw_artifacts.get("packet"), media_store),
                     "narrative": _to_signed_url_if_needed(raw_artifacts.get("narrative"), media_store),
                 },
+                "corpus": {
+                    **(scene_narrative.get("corpus") or {}),
+                    "artifacts": {
+                        "graph_bundle": _to_signed_url_if_needed(
+                            (scene_narrative.get("corpus") or {}).get("artifacts", {}).get("graph_bundle"),
+                            media_store,
+                        ),
+                        "retrieval_bundle": _to_signed_url_if_needed(
+                            (scene_narrative.get("corpus") or {}).get("artifacts", {}).get("retrieval_bundle"),
+                            media_store,
+                        ),
+                    },
+                }
+                if scene_narrative.get("corpus")
+                else None,
                 "trace": scene_narrative.get("trace"),
             }
         )
@@ -160,6 +218,27 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
             "artifact": _to_signed_url_if_needed(raw_summary.get("artifact"), media_store),
             "model": raw_summary.get("model", ""),
             "trace": raw_summary.get("trace"),
+        }
+
+    raw_corpus = result_payload.get("corpus")
+    if isinstance(raw_corpus, dict):
+        raw_corpus_artifacts = raw_corpus.get("artifacts", {})
+        payload["corpus"] = {
+            **raw_corpus,
+            "artifacts": {
+                "graph_bundle": _to_signed_url_if_needed(
+                    raw_corpus_artifacts.get("graph_bundle"),
+                    media_store,
+                ),
+                "retrieval_bundle": _to_signed_url_if_needed(
+                    raw_corpus_artifacts.get("retrieval_bundle"),
+                    media_store,
+                ),
+                "embeddings_bundle": _to_signed_url_if_needed(
+                    raw_corpus_artifacts.get("embeddings_bundle"),
+                    media_store,
+                ),
+            },
         }
     return payload
 
@@ -205,6 +284,17 @@ def _collect_required_artifact_keys(
                     scene_id,
                     object_key,
                 )
+        scene_corpus = scene_narrative.get("corpus") or {}
+        for object_key in scene_corpus.get("artifacts", {}).values():
+            if isinstance(object_key, str) and object_key.startswith("jobs/"):
+                required.add(object_key)
+            else:
+                logger.warning(
+                    "upload.verify.invalid_scene_corpus_key job_id=%s scene_id=%s value=%s",
+                    job_id,
+                    scene_id,
+                    object_key,
+                )
 
     video_synopsis = result_payload.get("video_synopsis")
     if isinstance(video_synopsis, dict):
@@ -217,6 +307,18 @@ def _collect_required_artifact_keys(
                 job_id,
                 object_key,
             )
+
+    corpus_payload = result_payload.get("corpus")
+    if isinstance(corpus_payload, dict):
+        for object_key in corpus_payload.get("artifacts", {}).values():
+            if isinstance(object_key, str) and object_key.startswith("jobs/"):
+                required.add(object_key)
+            else:
+                logger.warning(
+                    "upload.verify.invalid_corpus_key job_id=%s value=%s",
+                    job_id,
+                    object_key,
+                )
     return required
 
 
@@ -305,6 +407,7 @@ def process_video(
 
         frame_results = []
         face_tracker = analysis.FaceIdentityTracker()
+        object_tracker = analysis.ObjectTrackTracker()
         for frame_data in frames:
             result = analysis.analyze_frame(
                 frame_data,
@@ -313,6 +416,7 @@ def process_video(
                 str(TEMP_MEDIA_DIR),
                 media_store=media_store,
                 face_tracker=face_tracker,
+                object_tracker=object_tracker,
             )
             frame_results.append(result)
 
@@ -329,7 +433,32 @@ def process_video(
                 media_store=media_store,
             )
 
-        payload = {"job_id": job_id, "frames": frame_results, **scene_outputs}
+        corpus_output: dict[str, Any] | None = None
+        if SETTINGS.enable_corpus_pipeline:
+            corpus_output = corpus.build(
+                job_id=job_id,
+                scenes=scenes,
+                frame_results=frame_results,
+                scene_outputs=scene_outputs,
+                settings=SETTINGS,
+                media_store=media_store,
+            )
+            if SETTINGS.enable_corpus_ingest and corpus_output is not None:
+                graph_adapter = corpus_ingest.build_graph_adapter(SETTINGS)
+                vector_adapter = corpus_ingest.build_vector_adapter(SETTINGS)
+                ingest_report = corpus_ingest.ingest_corpus(
+                    corpus_payload=corpus_output,
+                    graph_adapter=graph_adapter,
+                    vector_adapter=vector_adapter,
+                )
+                corpus_output["ingest"] = ingest_report
+
+        payload = {
+            "job_id": job_id,
+            "frames": frame_results,
+            **scene_outputs,
+            "corpus": corpus_output,
+        }
         required_keys = _collect_required_artifact_keys(job_id, payload, source_key)
         _verify_required_artifacts(media_store, job_id, required_keys)
 

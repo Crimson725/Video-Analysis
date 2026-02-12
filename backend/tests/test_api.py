@@ -166,6 +166,17 @@ class TestGetResults:
                         "json": f"jobs/{job_id}/analysis/json/frame_0.json",
                         "toon": f"jobs/{job_id}/analysis/toon/frame_0.toon",
                     },
+                    "metadata": {
+                        "provenance": {
+                            "job_id": job_id,
+                            "scene_id": None,
+                            "frame_id": 0,
+                            "timestamp": "00:00:05.000",
+                            "source_artifact_key": f"jobs/{job_id}/frames/original/frame_0.jpg",
+                        },
+                        "model_provenance": [],
+                        "evidence_anchors": [],
+                    },
                 }
             ],
             "scene_narratives": [

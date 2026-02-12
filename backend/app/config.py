@@ -78,6 +78,18 @@ class Settings:
     scene_packet_disambiguation_label_threshold: int
     langsmith_tracing_enabled: bool
     langsmith_project: str
+    enable_corpus_pipeline: bool
+    enable_corpus_ingest: bool
+    graph_backend: str
+    vector_backend: str
+    neo4j_uri: str
+    neo4j_username: str
+    neo4j_password: str
+    neo4j_database: str
+    pgvector_dsn: str
+    embedding_model_id: str
+    embedding_model_version: str
+    embedding_dimension: int
 
     @classmethod
     def from_env(
@@ -122,6 +134,21 @@ class Settings:
             ),
             langsmith_tracing_enabled=_read_bool("LANGSMITH_TRACING", default=False),
             langsmith_project=os.getenv("LANGSMITH_PROJECT", "").strip(),
+            enable_corpus_pipeline=_read_bool("ENABLE_CORPUS_PIPELINE", default=False),
+            enable_corpus_ingest=_read_bool("ENABLE_CORPUS_INGEST", default=False),
+            graph_backend=os.getenv("GRAPH_BACKEND", "neo4j").strip() or "neo4j",
+            vector_backend=os.getenv("VECTOR_BACKEND", "pgvector").strip() or "pgvector",
+            neo4j_uri=os.getenv("NEO4J_URI", "bolt://127.0.0.1:7687").strip(),
+            neo4j_username=os.getenv("NEO4J_USERNAME", "neo4j").strip(),
+            neo4j_password=os.getenv("NEO4J_PASSWORD", "local-dev-password").strip(),
+            neo4j_database=os.getenv("NEO4J_DATABASE", "neo4j").strip(),
+            pgvector_dsn=os.getenv(
+                "PGVECTOR_DSN",
+                "postgresql://video_analysis:video_analysis@127.0.0.1:5433/video_analysis",
+            ).strip(),
+            embedding_model_id=os.getenv("EMBEDDING_MODEL_ID", "local-hash-embedding").strip(),
+            embedding_model_version=os.getenv("EMBEDDING_MODEL_VERSION", "v1").strip(),
+            embedding_dimension=_read_int("EMBEDDING_DIMENSION", default=16, minimum=1),
         )
 
     def missing_r2_fields(self) -> list[str]:

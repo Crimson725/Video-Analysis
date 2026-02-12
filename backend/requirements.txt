@@ -16,3 +16,5 @@ langchain>=0.3.0
 langgraph>=0.2.0
 langchain-google-genai>=2.0.0
 langsmith>=0.3.0
+neo4j>=5.28.0
+psycopg[binary]>=3.2.6

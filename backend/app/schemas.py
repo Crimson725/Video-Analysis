@@ -1,6 +1,27 @@
-"""Pydantic models for video analysis API responses."""
+"""Pydantic models for video analysis API responses and corpus artifacts."""
+
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class EvidenceAnchor(BaseModel):
+    """Grounding reference to a source frame region or artifact span."""
+
+    frame_id: int
+    timestamp: str
+    artifact_key: str
+    bbox: list[int] | None = Field(default=None, min_length=4, max_length=4)
+    text_span: str | None = None
+
+
+class ModelProvenance(BaseModel):
+    """Model and configuration provenance attached to generated outputs."""
+
+    component: str
+    model_id: str
+    model_version: str
+    threshold: float | None = None
 
 
 class SegmentationItem(BaseModel):
@@ -14,8 +35,9 @@ class SegmentationItem(BaseModel):
 
 
 class DetectionItem(BaseModel):
-    """Single object detection result."""
+    """Single object detection result with stable tracking identifier."""
 
+    track_id: str
     label: str
     confidence: float
     box: list[int] = Field(..., min_length=4, max_length=4)
@@ -25,9 +47,83 @@ class FaceItem(BaseModel):
     """Single face recognition result."""
 
     face_id: int
-    identity_id: str | None = None
+    identity_id: str
     confidence: float
     coordinates: list[int] = Field(..., min_length=4, max_length=4)
+
+
+class OCRBlock(BaseModel):
+    """OCR enrichment block attached to a frame."""
+
+    text: str
+    confidence: float
+    bbox: list[int] = Field(..., min_length=4, max_length=4)
+
+
+class ActionLabel(BaseModel):
+    """Action/activity enrichment label for a frame."""
+
+    label: str
+    confidence: float
+
+
+class PoseKeypoint(BaseModel):
+    """Single pose keypoint in pixel space."""
+
+    x: float
+    y: float
+    confidence: float
+
+
+class PoseItem(BaseModel):
+    """Pose enrichment payload for a tracked subject."""
+
+    track_id: str
+    confidence: float
+    keypoints: list[PoseKeypoint] = Field(default_factory=list)
+
+
+class CameraMotionTag(BaseModel):
+    """Camera or shot-level motion descriptor."""
+
+    label: str
+    confidence: float
+
+
+class QualityFlags(BaseModel):
+    """Frame quality flags used for corpus trust signals."""
+
+    blur_score: float | None = None
+    is_blurry: bool | None = None
+    is_occluded: bool | None = None
+
+
+class FrameEnrichment(BaseModel):
+    """Optional CV enrichment outputs normalized for corpus use."""
+
+    ocr_blocks: list[OCRBlock] = Field(default_factory=list)
+    actions: list[ActionLabel] = Field(default_factory=list)
+    poses: list[PoseItem] = Field(default_factory=list)
+    camera_motion: CameraMotionTag | None = None
+    quality: QualityFlags | None = None
+
+
+class FrameProvenance(BaseModel):
+    """Per-frame provenance used for corpus grounding."""
+
+    job_id: str
+    scene_id: int | None = None
+    frame_id: int
+    timestamp: str
+    source_artifact_key: str
+
+
+class FrameMetadata(BaseModel):
+    """Metadata envelope for corpus grounding and traceability."""
+
+    provenance: FrameProvenance
+    model_provenance: list[ModelProvenance] = Field(default_factory=list)
+    evidence_anchors: list[EvidenceAnchor] = Field(default_factory=list)
 
 
 class FrameFiles(BaseModel):
@@ -42,9 +138,10 @@ class FrameFiles(BaseModel):
 class FrameAnalysis(BaseModel):
     """Analysis results for a single frame."""
 
-    semantic_segmentation: list[SegmentationItem] = []
-    object_detection: list[DetectionItem] = []
-    face_recognition: list[FaceItem] = []
+    semantic_segmentation: list[SegmentationItem] = Field(default_factory=list)
+    object_detection: list[DetectionItem] = Field(default_factory=list)
+    face_recognition: list[FaceItem] = Field(default_factory=list)
+    enrichment: FrameEnrichment = Field(default_factory=FrameEnrichment)
 
 
 class AnalysisArtifacts(BaseModel):
@@ -64,6 +161,79 @@ class FrameResult(BaseModel):
     files: FrameFiles
     analysis: FrameAnalysis
     analysis_artifacts: AnalysisArtifacts
+    metadata: FrameMetadata
+
+
+class SceneTemporalSpan(BaseModel):
+    """Temporal span metadata for corpus entities and events."""
+
+    first_seen: float
+    last_seen: float
+    duration_sec: float
+
+
+class SceneEntity(BaseModel):
+    """Scene-level corpus-ready entity aggregate."""
+
+    entity_id: str
+    label: str
+    entity_type: str
+    count: int
+    confidence: float
+    temporal_span: SceneTemporalSpan
+    evidence: list[EvidenceAnchor] = Field(min_length=1)
+    track_id: str | None = None
+    identity_id: str | None = None
+
+
+class SceneEvent(BaseModel):
+    """Scene-level corpus-ready event aggregate."""
+
+    event_id: str
+    event_type: str
+    count: int
+    confidence: float
+    temporal_span: SceneTemporalSpan
+    evidence: list[EvidenceAnchor] = Field(min_length=1)
+
+
+class SceneRelation(BaseModel):
+    """Scene-level corpus-ready relation aggregate."""
+
+    relation_id: str
+    source_entity_id: str
+    target_entity_id: str
+    predicate: str
+    confidence: float
+    temporal_span: SceneTemporalSpan
+    evidence: list[EvidenceAnchor] = Field(min_length=1)
+
+
+class RetrievalChunk(BaseModel):
+    """RAG-ready chunk generated from scene understanding outputs."""
+
+    chunk_id: str
+    text: str
+    source_entity_ids: list[str] = Field(default_factory=list)
+    artifact_keys: list[str] = Field(default_factory=list)
+    temporal_span: SceneTemporalSpan
+
+
+class SceneCorpusArtifacts(BaseModel):
+    """Deterministic references to scene-level corpus sources."""
+
+    graph_bundle: str
+    retrieval_bundle: str
+
+
+class SceneCorpusPacket(BaseModel):
+    """Corpus payload emitted at scene layer before job-level build."""
+
+    entities: list[SceneEntity] = Field(default_factory=list)
+    events: list[SceneEvent] = Field(default_factory=list)
+    relations: list[SceneRelation] = Field(default_factory=list)
+    retrieval_chunks: list[RetrievalChunk] = Field(default_factory=list)
+    artifacts: SceneCorpusArtifacts
 
 
 class SceneArtifacts(BaseModel):
@@ -82,6 +252,7 @@ class SceneNarrativeResult(BaseModel):
     narrative_paragraph: str
     key_moments: list[str] = Field(default_factory=list, min_length=1)
     artifacts: SceneArtifacts
+    corpus: SceneCorpusPacket | None = None
     trace: dict[str, str] | None = None
 
 
@@ -94,6 +265,107 @@ class VideoSynopsisResult(BaseModel):
     trace: dict[str, str] | None = None
 
 
+class GraphNode(BaseModel):
+    """Graph-ready corpus node payload."""
+
+    node_id: str
+    node_type: str
+    label: str
+    confidence: float
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphEdge(BaseModel):
+    """Graph-ready corpus edge payload."""
+
+    edge_id: str
+    source_node_id: str
+    target_node_id: str
+    predicate: str
+    confidence: float
+    evidence: list[EvidenceAnchor] = Field(min_length=1)
+
+
+class SourceFact(BaseModel):
+    """Source fact extracted directly from CV outputs."""
+
+    fact_id: str
+    fact_type: str
+    confidence: float
+    payload: dict[str, Any] = Field(default_factory=dict)
+    evidence: list[EvidenceAnchor] = Field(min_length=1)
+
+
+class DerivedClaim(BaseModel):
+    """LLM-derived claim separated from source facts."""
+
+    claim_id: str
+    text: str
+    confidence: float
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    evidence: list[EvidenceAnchor] = Field(min_length=1)
+
+
+class GraphCorpusBundle(BaseModel):
+    """Graph-ready corpus bundle."""
+
+    job_id: str
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)
+    source_facts: list[SourceFact] = Field(default_factory=list)
+    derived_claims: list[DerivedClaim] = Field(default_factory=list)
+
+
+class RetrievalChunkRecord(BaseModel):
+    """Vector-search chunk with metadata references."""
+
+    chunk_id: str
+    text: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrievalCorpusBundle(BaseModel):
+    """Retrieval corpus bundle."""
+
+    job_id: str
+    chunks: list[RetrievalChunkRecord] = Field(default_factory=list)
+
+
+class EmbeddingRecord(BaseModel):
+    """Embedding vector payload for one retrieval chunk."""
+
+    chunk_id: str
+    vector: list[float] = Field(default_factory=list, min_length=1)
+    model_id: str
+    model_version: str
+
+
+class EmbeddingsCorpusBundle(BaseModel):
+    """Embeddings corpus bundle."""
+
+    job_id: str
+    dimension: int
+    embeddings: list[EmbeddingRecord] = Field(default_factory=list)
+
+
+class CorpusArtifacts(BaseModel):
+    """Deterministic stored artifact references for corpus outputs."""
+
+    graph_bundle: str
+    retrieval_bundle: str
+    embeddings_bundle: str
+
+
+class JobCorpusResult(BaseModel):
+    """Job-level corpus products emitted after scene understanding."""
+
+    graph: GraphCorpusBundle
+    retrieval: RetrievalCorpusBundle
+    embeddings: EmbeddingsCorpusBundle
+    artifacts: CorpusArtifacts
+    ingest: dict[str, Any] | None = None
+
+
 class JobResult(BaseModel):
     """Full analysis result for a job."""
 
@@ -101,6 +373,7 @@ class JobResult(BaseModel):
     frames: list[FrameResult]
     scene_narratives: list[SceneNarrativeResult] = Field(default_factory=list)
     video_synopsis: VideoSynopsisResult | None = None
+    corpus: JobCorpusResult | None = None
 
 
 class JobStatus(BaseModel):
