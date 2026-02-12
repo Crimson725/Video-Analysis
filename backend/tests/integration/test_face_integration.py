@@ -42,6 +42,10 @@ class TestRunFaceRecognitionIntegration:
             assert isinstance(item["face_id"], int)
             assert item["face_id"] > 0
 
+            # identity_id: stable anonymous face identifier
+            assert isinstance(item["identity_id"], str)
+            assert item["identity_id"].startswith("face_")
+
             # confidence: float in [0, 1]
             assert isinstance(item["confidence"], float)
             assert 0.0 <= item["confidence"] <= 1.0

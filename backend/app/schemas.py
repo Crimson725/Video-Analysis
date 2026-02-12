@@ -25,6 +25,7 @@ class FaceItem(BaseModel):
     """Single face recognition result."""
 
     face_id: int
+    identity_id: str | None = None
     confidence: float
     coordinates: list[int] = Field(..., min_length=4, max_length=4)
 

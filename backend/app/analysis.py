@@ -1,5 +1,6 @@
 """Frame analysis pipeline: segmentation, detection, face recognition."""
 
+from dataclasses import dataclass
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,95 @@ if TYPE_CHECKING:
     from app.storage import MediaStore
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _FaceTrack:
+    """Internal state for a tracked anonymous face identity."""
+
+    identity_num: int
+    box: tuple[int, int, int, int]
+    last_frame_id: int
+
+
+class FaceIdentityTracker:
+    """Assign stable anonymous identity IDs to faces across frames."""
+
+    def __init__(self, iou_threshold: float = 0.35, max_frame_gap: int = 2) -> None:
+        self.iou_threshold = iou_threshold
+        self.max_frame_gap = max_frame_gap
+        self._next_identity_num = 1
+        self._tracks: dict[int, _FaceTrack] = {}
+
+    @staticmethod
+    def _intersection_over_union(
+        box_a: tuple[int, int, int, int], box_b: tuple[int, int, int, int]
+    ) -> float:
+        ax1, ay1, ax2, ay2 = box_a
+        bx1, by1, bx2, by2 = box_b
+
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+        inter_w = max(0, inter_x2 - inter_x1)
+        inter_h = max(0, inter_y2 - inter_y1)
+        inter_area = inter_w * inter_h
+
+        if inter_area <= 0:
+            return 0.0
+
+        area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+        area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+        union = area_a + area_b - inter_area
+        if union <= 0:
+            return 0.0
+
+        return inter_area / union
+
+    def _drop_stale_tracks(self, frame_id: int) -> None:
+        stale = [
+            identity_num
+            for identity_num, track in self._tracks.items()
+            if frame_id - track.last_frame_id > self.max_frame_gap
+        ]
+        for identity_num in stale:
+            del self._tracks[identity_num]
+
+    def assign_identity(
+        self,
+        box: tuple[int, int, int, int],
+        frame_id: int,
+        used_identities: set[int],
+    ) -> int:
+        """Return a stable identity number for the current face box."""
+        self._drop_stale_tracks(frame_id)
+
+        best_identity: int | None = None
+        best_iou = 0.0
+
+        for identity_num, track in self._tracks.items():
+            if identity_num in used_identities:
+                continue
+            iou = self._intersection_over_union(box, track.box)
+            if iou > best_iou:
+                best_iou = iou
+                best_identity = identity_num
+
+        if best_identity is not None and best_iou >= self.iou_threshold:
+            matched = self._tracks[best_identity]
+            matched.box = box
+            matched.last_frame_id = frame_id
+            return best_identity
+
+        identity_num = self._next_identity_num
+        self._next_identity_num += 1
+        self._tracks[identity_num] = _FaceTrack(
+            identity_num=identity_num,
+            box=box,
+            last_frame_id=frame_id,
+        )
+        return identity_num
 
 
 def _to_int_coords(coord: float) -> int:
@@ -180,6 +270,7 @@ def run_face_recognition(
     local_dir: str | None,
     media_store: "MediaStore | None" = None,
     confidence_threshold: float = 0.9,
+    face_tracker: FaceIdentityTracker | None = None,
 ) -> list[dict]:
     """Run MTCNN face detection, persist visualization, and return structured data."""
     # Convert BGR (OpenCV) to RGB for MTCNN
@@ -193,6 +284,7 @@ def run_face_recognition(
 
     items: list[dict] = []
     face_id = 0
+    used_identities: set[int] = set()
     if boxes is not None and probs is not None:
         for index, box in enumerate(boxes):
             prob = float(probs[index])
@@ -208,9 +300,20 @@ def run_face_recognition(
             cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
             face_id += 1
+            if face_tracker is not None:
+                identity_num = face_tracker.assign_identity(
+                    (x1, y1, x2, y2),
+                    frame_id=frame_id,
+                    used_identities=used_identities,
+                )
+            else:
+                identity_num = face_id
+            used_identities.add(identity_num)
+
             items.append(
                 {
                     "face_id": face_id,
+                    "identity_id": f"face_{identity_num}",
                     "confidence": prob,
                     "coordinates": [x1, y1, x2, y2],
                 }
@@ -271,6 +374,7 @@ def analyze_frame(
     job_id: str,
     local_dir: str | None,
     media_store: "MediaStore | None" = None,
+    face_tracker: FaceIdentityTracker | None = None,
 ) -> dict:
     """Run all three analysis tasks on a frame and return FrameResult-compatible dict."""
     image = frame_data["image"]
@@ -284,7 +388,13 @@ def analyze_frame(
         image, models.detector, job_id, frame_id, local_dir, media_store
     )
     face_items = run_face_recognition(
-        image, models.face_detector, job_id, frame_id, local_dir, media_store
+        image,
+        models.face_detector,
+        job_id,
+        frame_id,
+        local_dir,
+        media_store,
+        face_tracker=face_tracker,
     )
 
     files = _build_frame_files(job_id, frame_id, media_store)

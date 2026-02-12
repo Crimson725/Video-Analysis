@@ -47,16 +47,32 @@ class TestDetectionItem:
 
 class TestFaceItem:
     def test_valid_coordinates(self):
-        item = FaceItem(face_id=1, confidence=0.99, coordinates=[10, 20, 30, 40])
+        item = FaceItem(
+            face_id=1,
+            identity_id="face_1",
+            confidence=0.99,
+            coordinates=[10, 20, 30, 40],
+        )
+        assert item.identity_id == "face_1"
         assert item.coordinates == [10, 20, 30, 40]
 
     def test_rejects_coordinates_with_5_elements(self):
         with pytest.raises(ValidationError):
-            FaceItem(face_id=1, confidence=0.99, coordinates=[10, 20, 30, 40, 50])
+            FaceItem(
+                face_id=1,
+                identity_id="face_1",
+                confidence=0.99,
+                coordinates=[10, 20, 30, 40, 50],
+            )
 
     def test_rejects_coordinates_with_3_elements(self):
         with pytest.raises(ValidationError):
-            FaceItem(face_id=1, confidence=0.99, coordinates=[10, 20, 30])
+            FaceItem(
+                face_id=1,
+                identity_id="face_1",
+                confidence=0.99,
+                coordinates=[10, 20, 30],
+            )
 
 
 class TestJobResult:

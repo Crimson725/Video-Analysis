@@ -304,6 +304,7 @@ def process_video(
         scene.save_original_frames(frames, job_id, str(TEMP_MEDIA_DIR), media_store=media_store)
 
         frame_results = []
+        face_tracker = analysis.FaceIdentityTracker()
         for frame_data in frames:
             result = analysis.analyze_frame(
                 frame_data,
@@ -311,6 +312,7 @@ def process_video(
                 job_id,
                 str(TEMP_MEDIA_DIR),
                 media_store=media_store,
+                face_tracker=face_tracker,
             )
             frame_results.append(result)
 

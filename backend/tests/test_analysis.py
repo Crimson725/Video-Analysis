@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from app.analysis import (
+    FaceIdentityTracker,
     _to_int_coords,
     analyze_frame,
     run_detection,
@@ -221,9 +222,48 @@ class TestRunFaceRecognition:
 
         assert len(items) == 2
         assert items[0]["face_id"] == 1
+        assert items[0]["identity_id"] == "face_1"
         assert items[0]["confidence"] == 0.95
         assert items[0]["coordinates"] == [10, 20, 30, 40]
         assert items[1]["face_id"] == 2
+        assert items[1]["identity_id"] == "face_2"
+
+    @patch("app.analysis.cv2.imwrite")
+    @patch("app.analysis.cv2.cvtColor")
+    @patch("app.analysis.cv2.rectangle")
+    def test_identity_id_persists_across_frames_with_tracker(
+        self, mock_rect, mock_cvt, mock_imwrite, static_dir
+    ):
+        mock_cvt.return_value = np.zeros((100, 100, 3), dtype=np.uint8)
+
+        face_detector = MagicMock()
+        face_detector.detect.side_effect = [
+            (np.array([[10.0, 20.0, 30.0, 40.0]]), np.array([0.95])),
+            (np.array([[12.0, 21.0, 32.0, 41.0]]), np.array([0.97])),
+        ]
+        tracker = FaceIdentityTracker(iou_threshold=0.2, max_frame_gap=3)
+
+        frame_0_items = run_face_recognition(
+            np.zeros((100, 100, 3), dtype=np.uint8),
+            face_detector,
+            "job-1",
+            0,
+            static_dir,
+            confidence_threshold=0.9,
+            face_tracker=tracker,
+        )
+        frame_1_items = run_face_recognition(
+            np.zeros((100, 100, 3), dtype=np.uint8),
+            face_detector,
+            "job-1",
+            1,
+            static_dir,
+            confidence_threshold=0.9,
+            face_tracker=tracker,
+        )
+
+        assert frame_0_items[0]["identity_id"] == "face_1"
+        assert frame_1_items[0]["identity_id"] == "face_1"
 
     @patch("app.analysis.cv2.imwrite")
     @patch("app.analysis.cv2.cvtColor")
