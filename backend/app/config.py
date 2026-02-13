@@ -146,7 +146,7 @@ class Settings:
                 "PGVECTOR_DSN",
                 "postgresql://video_analysis:video_analysis@127.0.0.1:5433/video_analysis",
             ).strip(),
-            embedding_model_id=os.getenv("EMBEDDING_MODEL_ID", "local-hash-embedding").strip(),
+            embedding_model_id=os.getenv("EMBEDDING_MODEL_ID", "gemini-embedding-001").strip(),
             embedding_model_version=os.getenv("EMBEDDING_MODEL_VERSION", "v1").strip(),
             embedding_dimension=_read_int("EMBEDDING_DIMENSION", default=16, minimum=1),
         )
@@ -167,5 +167,15 @@ class Settings:
         """Return missing required LLM settings for enabled scene understanding."""
         missing: list[str] = []
         if self.enable_scene_understanding_pipeline and not self.google_api_key:
+            missing.append("GOOGLE_API_KEY")
+        return missing
+
+    def missing_embedding_fields(self) -> list[str]:
+        """Return missing required settings for configured embedding generation."""
+        missing: list[str] = []
+        model_id = self.embedding_model_id.strip()
+        if not model_id:
+            missing.append("EMBEDDING_MODEL_ID")
+        if model_id.startswith("gemini-") and not self.google_api_key:
             missing.append("GOOGLE_API_KEY")
         return missing

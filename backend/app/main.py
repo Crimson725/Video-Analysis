@@ -59,6 +59,14 @@ def _startup_validate_settings() -> None:
                 "Gemini client may be unavailable and runtime will use fallback generation.",
                 ", ".join(missing_llm),
             )
+    if SETTINGS.enable_corpus_pipeline:
+        missing_embedding = SETTINGS.missing_embedding_fields()
+        if missing_embedding:
+            logger.warning(
+                "Corpus pipeline enabled with missing embedding settings: %s. "
+                "Corpus embedding generation may fail at runtime.",
+                ", ".join(missing_embedding),
+            )
     if SETTINGS.enable_corpus_ingest and not SETTINGS.enable_corpus_pipeline:
         logger.warning(
             "Corpus ingest is enabled while corpus build is disabled. "

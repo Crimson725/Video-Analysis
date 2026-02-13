@@ -22,12 +22,14 @@ class TestSettings:
         monkeypatch.delenv("ENABLE_CORPUS_INGEST", raising=False)
         monkeypatch.delenv("SCENE_MODEL_ID", raising=False)
         monkeypatch.delenv("SYNOPSIS_MODEL_ID", raising=False)
+        monkeypatch.delenv("EMBEDDING_MODEL_ID", raising=False)
         settings = Settings.from_env(autoload_dotenv=False)
         assert settings.enable_scene_understanding_pipeline is True
         assert settings.enable_corpus_pipeline is True
         assert settings.enable_corpus_ingest is True
         assert settings.scene_model_id == "gemini-2.5-flash-lite"
         assert settings.synopsis_model_id == "gemini-2.5-flash-lite"
+        assert settings.embedding_model_id == "gemini-embedding-001"
 
     def test_corpus_settings_parse(self, monkeypatch):
         monkeypatch.setenv("ENABLE_CORPUS_PIPELINE", "true")
@@ -49,6 +51,16 @@ class TestSettings:
         monkeypatch.setenv("GOOGLE_API_KEY", "key")
         settings = Settings.from_env(autoload_dotenv=False)
         assert settings.missing_llm_fields() == []
+
+    def test_missing_embedding_fields_for_gemini_model(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.setenv("EMBEDDING_MODEL_ID", "gemini-embedding-001")
+        settings = Settings.from_env(autoload_dotenv=False)
+        assert settings.missing_embedding_fields() == ["GOOGLE_API_KEY"]
+
+        monkeypatch.setenv("GOOGLE_API_KEY", "key")
+        settings = Settings.from_env(autoload_dotenv=False)
+        assert settings.missing_embedding_fields() == []
 
     def test_autoloads_google_api_key_from_dotenv_local(self, monkeypatch, tmp_path: Path):
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)

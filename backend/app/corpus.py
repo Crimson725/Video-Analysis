@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from app.schemas import (
     CorpusArtifacts,
@@ -25,6 +25,85 @@ from app.storage import build_corpus_key
 if TYPE_CHECKING:
     from app.config import Settings
     from app.storage import MediaStore
+
+
+class CorpusEmbeddingError(RuntimeError):
+    """Raised when corpus embedding generation cannot complete."""
+
+
+class EmbeddingClient(Protocol):
+    """Embedding client contract used by corpus construction."""
+
+    def embed_documents(
+        self,
+        texts: list[str],
+        *,
+        output_dimensionality: int | None = None,
+    ) -> list[list[float]]:
+        """Embed text documents into vectors."""
+
+
+class GeminiEmbeddingClient:
+    """Gemini embedding client wrapper for corpus generation."""
+
+    def __init__(self, *, google_api_key: str, model_id: str) -> None:
+        normalized_model_id = model_id.strip()
+        if not normalized_model_id:
+            raise CorpusEmbeddingError("EMBEDDING_MODEL_ID must be configured for corpus embeddings")
+        if not normalized_model_id.startswith("gemini-"):
+            raise CorpusEmbeddingError(
+                f"Unsupported embedding model_id '{normalized_model_id}'. "
+                "Only Gemini embedding models are supported in this pipeline."
+            )
+        normalized_api_key = google_api_key.strip()
+        if not normalized_api_key:
+            raise CorpusEmbeddingError("GOOGLE_API_KEY is required for Gemini embedding generation")
+
+        try:  # pragma: no cover - import availability differs by environment
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        except Exception as exc:  # pragma: no cover - import availability differs by environment
+            raise CorpusEmbeddingError(
+                "langchain-google-genai is required for Gemini embedding generation"
+            ) from exc
+
+        self._model_id = normalized_model_id
+        self._client = GoogleGenerativeAIEmbeddings(
+            model=normalized_model_id,
+            api_key=normalized_api_key,
+        )
+
+    def embed_documents(
+        self,
+        texts: list[str],
+        *,
+        output_dimensionality: int | None = None,
+    ) -> list[list[float]]:
+        if not texts:
+            return []
+        try:
+            vectors = self._client.embed_documents(
+                texts,
+                task_type="retrieval_document",
+                output_dimensionality=output_dimensionality,
+            )
+        except Exception as exc:
+            raise CorpusEmbeddingError(
+                f"Gemini embedding request failed for model '{self._model_id}'"
+            ) from exc
+
+        normalized_vectors: list[list[float]] = []
+        for index, vector in enumerate(vectors):
+            if not isinstance(vector, list):
+                raise CorpusEmbeddingError(
+                    f"Gemini embedding response at index {index} is not a vector list"
+                )
+            try:
+                normalized_vectors.append([float(value) for value in vector])
+            except (TypeError, ValueError) as exc:
+                raise CorpusEmbeddingError(
+                    f"Gemini embedding response at index {index} contains non-numeric values"
+                ) from exc
+        return normalized_vectors
 
 
 def _deterministic_id(kind: str, *parts: Any) -> str:
@@ -325,13 +404,12 @@ def _build_retrieval_bundle(
     return RetrievalCorpusBundle(job_id=job_id, chunks=list(unique_chunks.values()))
 
 
-def _deterministic_embedding_values(text: str, chunk_id: str, dimension: int) -> list[float]:
-    seed = hashlib.sha256(f"{chunk_id}|{text}".encode("utf-8")).digest()
-    values: list[float] = []
-    for index in range(dimension):
-        byte = seed[index % len(seed)]
-        values.append((byte / 255.0) * 2.0 - 1.0)
-    return values
+def _build_embedding_client(settings: "Settings") -> EmbeddingClient:
+    """Build the configured semantic embedding client."""
+    return GeminiEmbeddingClient(
+        google_api_key=settings.google_api_key,
+        model_id=settings.embedding_model_id,
+    )
 
 
 def _build_embeddings_bundle(
@@ -339,17 +417,40 @@ def _build_embeddings_bundle(
     job_id: str,
     retrieval_bundle: RetrievalCorpusBundle,
     settings: "Settings",
+    embedding_client: EmbeddingClient | None = None,
 ) -> EmbeddingsCorpusBundle:
+    if settings.embedding_dimension < 1:
+        raise CorpusEmbeddingError("EMBEDDING_DIMENSION must be >= 1")
+
+    if not retrieval_bundle.chunks:
+        return EmbeddingsCorpusBundle(
+            job_id=job_id,
+            dimension=settings.embedding_dimension,
+            embeddings=[],
+        )
+
+    client = embedding_client or _build_embedding_client(settings)
+    vectors = client.embed_documents(
+        [chunk.text for chunk in retrieval_bundle.chunks],
+        output_dimensionality=settings.embedding_dimension,
+    )
+    if len(vectors) != len(retrieval_bundle.chunks):
+        raise CorpusEmbeddingError(
+            "Embedding response count does not match retrieval chunk count: "
+            f"{len(vectors)} != {len(retrieval_bundle.chunks)}"
+        )
+
     embeddings: list[EmbeddingRecord] = []
-    for chunk in retrieval_bundle.chunks:
+    for chunk, vector in zip(retrieval_bundle.chunks, vectors):
+        if len(vector) != settings.embedding_dimension:
+            raise CorpusEmbeddingError(
+                "Embedding vector dimension mismatch for "
+                f"{chunk.chunk_id}: expected {settings.embedding_dimension}, got {len(vector)}"
+            )
         embeddings.append(
             EmbeddingRecord(
                 chunk_id=chunk.chunk_id,
-                vector=_deterministic_embedding_values(
-                    chunk.text,
-                    chunk.chunk_id,
-                    settings.embedding_dimension,
-                ),
+                vector=vector,
                 model_id=settings.embedding_model_id,
                 model_version=settings.embedding_model_version,
             )
@@ -387,6 +488,7 @@ def build(
     scene_outputs: dict[str, Any],
     settings: "Settings",
     media_store: "MediaStore | None" = None,
+    embedding_client: EmbeddingClient | None = None,
 ) -> dict[str, Any]:
     """Build synchronized graph/retrieval/embeddings corpus products."""
     del scenes
@@ -404,6 +506,7 @@ def build(
         job_id=job_id,
         retrieval_bundle=retrieval_bundle,
         settings=settings,
+        embedding_client=embedding_client,
     )
 
     graph_payload = graph_bundle.model_dump(mode="json")

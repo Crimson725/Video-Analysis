@@ -41,7 +41,11 @@ These flags are enabled by default and can be overridden per environment:
 - `VECTOR_BACKEND` - `pgvector` or `memory`
 - `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`
 - `PGVECTOR_DSN`
-- `EMBEDDING_MODEL_ID`, `EMBEDDING_MODEL_VERSION`, `EMBEDDING_DIMENSION`
+- `EMBEDDING_MODEL_ID` (default `gemini-embedding-001`)
+- `EMBEDDING_MODEL_VERSION` (default `v1`)
+- `EMBEDDING_DIMENSION` (default `16`)
+
+When using Gemini embeddings (default), `GOOGLE_API_KEY` is required for corpus embedding generation.
 
 Local stack setup guide: `/Users/crimson2049/Video Analysis/backend/docs/local-corpus-stack.md`
 
@@ -131,7 +135,7 @@ Behavior:
 
 ## No-LLM Corpus E2E Integration Test
 
-This opt-in integration test validates one full path: real CV `process_video` run, corpus artifact generation, Neo4j + pgvector ingest verification, and cleanup policy assertion, without requiring Gemini/LLM.
+This opt-in integration test validates one full path: real CV `process_video` run, corpus artifact generation, Neo4j + pgvector ingest verification, and cleanup policy assertion with scene/synopsis LLM generation disabled.
 
 ```bash
 cd backend
@@ -139,12 +143,14 @@ RUN_CORPUS_E2E_INTEGRATION=1 \
 ENABLE_SCENE_UNDERSTANDING_PIPELINE=false \
 ENABLE_CORPUS_PIPELINE=true \
 ENABLE_CORPUS_INGEST=true \
+GOOGLE_API_KEY="<your-gemini-key>" \
 uv run pytest tests/integration/test_no_llm_corpus_e2e_integration.py -m integration -vv
 ```
 
 Notes:
 
 - Works with either Docker or Podman as long as local Neo4j + pgvector services are reachable.
+- Corpus embedding generation uses Gemini embeddings by default and requires `GOOGLE_API_KEY`.
 - On opt-in runs, the integration fixture attempts to start local Neo4j + pgvector automatically (`podman compose` first, Docker fallback) before skipping.
 - The suite uses isolated default DB endpoints (`bolt://127.0.0.1:17687`, `postgresql://video_analysis:video_analysis@127.0.0.1:15433/video_analysis`) to avoid conflicts with existing local DB services.
 - The suite is pinned to the canonical real test video at `/Users/crimson2049/Video Analysis/Test Videos/WhatCarCanYouGetForAGrand.mp4` and does not use fake MP4 fixtures.

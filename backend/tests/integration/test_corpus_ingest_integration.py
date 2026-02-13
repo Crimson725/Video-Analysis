@@ -10,14 +10,15 @@ import pytest
 from app import corpus
 from app.corpus_ingest import build_graph_adapter, build_vector_adapter, ingest_corpus
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.external_api]
 
 
-def _settings() -> SimpleNamespace:
+def _settings(gemini_api_key: str) -> SimpleNamespace:
     return SimpleNamespace(
         embedding_dimension=8,
-        embedding_model_id="local-hash-embedding",
+        embedding_model_id="gemini-embedding-001",
         embedding_model_version="v1",
+        google_api_key=gemini_api_key,
         graph_backend="neo4j",
         vector_backend="pgvector",
         neo4j_uri=os.getenv("NEO4J_URI", "bolt://127.0.0.1:7687"),
@@ -89,8 +90,8 @@ def _frame(frame_id: int) -> dict:
 
 
 @pytest.mark.skipif(not _prereqs_available(), reason="Set RUN_CORPUS_INGEST_INTEGRATION=1 with Neo4j/pgvector running")
-def test_ingest_into_local_neo4j_and_pgvector():
-    settings = _settings()
+def test_ingest_into_local_neo4j_and_pgvector(gemini_api_key):
+    settings = _settings(gemini_api_key)
     scene_outputs = {
         "scene_narratives": [
             {

@@ -1,6 +1,8 @@
-"""Unit tests for corpus construction and deterministic IDs."""
+"""Unit tests for corpus construction and semantic embedding wiring."""
 
 from types import SimpleNamespace
+
+import pytest
 
 from app import corpus
 
@@ -8,11 +10,32 @@ from app import corpus
 def _settings(**overrides):
     defaults = {
         "embedding_dimension": 8,
-        "embedding_model_id": "local-hash-embedding",
+        "embedding_model_id": "gemini-embedding-001",
         "embedding_model_version": "v1",
+        "google_api_key": "test-key",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+class _StubEmbeddingClient:
+    def embed_documents(
+        self,
+        texts: list[str],
+        *,
+        output_dimensionality: int | None = None,
+    ) -> list[list[float]]:
+        assert output_dimensionality is not None
+        vectors: list[list[float]] = []
+        for text in texts:
+            seed = sum(ord(ch) for ch in text)
+            vectors.append(
+                [
+                    float(((seed + index) % 17) / 16.0)
+                    for index in range(output_dimensionality)
+                ]
+            )
+        return vectors
 
 
 def _frame(frame_id: int, timestamp: str) -> dict:
@@ -146,6 +169,7 @@ def test_corpus_ids_are_deterministic():
         frame_results=frame_results,
         scene_outputs=scene_outputs,
         settings=_settings(),
+        embedding_client=_StubEmbeddingClient(),
     )
     second = corpus.build(
         job_id="job-1",
@@ -153,6 +177,7 @@ def test_corpus_ids_are_deterministic():
         frame_results=frame_results,
         scene_outputs=scene_outputs,
         settings=_settings(),
+        embedding_client=_StubEmbeddingClient(),
     )
 
     first_node_ids = sorted(item["node_id"] for item in first["graph"]["nodes"])
@@ -171,6 +196,7 @@ def test_source_facts_and_derived_claims_are_separate_and_grounded():
         frame_results=[_frame(0, "00:00:01.000")],
         scene_outputs=_scene_outputs(),
         settings=_settings(),
+        embedding_client=_StubEmbeddingClient(),
     )
 
     assert payload["graph"]["source_facts"], "expected source facts"
@@ -184,3 +210,49 @@ def test_source_facts_and_derived_claims_are_separate_and_grounded():
     for claim in payload["graph"]["derived_claims"]:
         assert claim["evidence"], "derived claim must include evidence"
         assert claim["provenance"]["source"] == "scene_narrative"
+
+
+def test_embeddings_preserve_model_metadata_and_dimension():
+    payload = corpus.build(
+        job_id="job-1",
+        scenes=[(0.0, 4.0)],
+        frame_results=[_frame(0, "00:00:01.000")],
+        scene_outputs=_scene_outputs(),
+        settings=_settings(embedding_dimension=6, embedding_model_version="v2"),
+        embedding_client=_StubEmbeddingClient(),
+    )
+
+    embeddings = payload["embeddings"]["embeddings"]
+    assert embeddings, "expected at least one embedding"
+    for item in embeddings:
+        assert len(item["vector"]) == 6
+        assert item["model_id"] == "gemini-embedding-001"
+        assert item["model_version"] == "v2"
+
+
+def test_build_fails_when_embedding_dimension_mismatch():
+    class _BadDimensionEmbeddingClient:
+        def embed_documents(self, texts: list[str], *, output_dimensionality: int | None = None) -> list[list[float]]:
+            del output_dimensionality
+            return [[0.1] * 3 for _ in texts]
+
+    with pytest.raises(corpus.CorpusEmbeddingError, match="dimension mismatch"):
+        corpus.build(
+            job_id="job-1",
+            scenes=[(0.0, 4.0)],
+            frame_results=[_frame(0, "00:00:01.000")],
+            scene_outputs=_scene_outputs(),
+            settings=_settings(embedding_dimension=8),
+            embedding_client=_BadDimensionEmbeddingClient(),
+        )
+
+
+def test_build_fails_when_gemini_key_missing():
+    with pytest.raises(corpus.CorpusEmbeddingError, match="GOOGLE_API_KEY"):
+        corpus.build(
+            job_id="job-1",
+            scenes=[(0.0, 4.0)],
+            frame_results=[_frame(0, "00:00:01.000")],
+            scene_outputs=_scene_outputs(),
+            settings=_settings(google_api_key=""),
+        )

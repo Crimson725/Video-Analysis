@@ -6,8 +6,20 @@ from app.corpus_ingest import InMemoryGraphAdapter, InMemoryVectorAdapter, inges
 
 class _Settings:
     embedding_dimension = 8
-    embedding_model_id = "local-hash-embedding"
+    embedding_model_id = "gemini-embedding-001"
     embedding_model_version = "v1"
+    google_api_key = "test-key"
+
+
+class _StubEmbeddingClient:
+    def embed_documents(
+        self,
+        texts: list[str],
+        *,
+        output_dimensionality: int | None = None,
+    ) -> list[list[float]]:
+        assert output_dimensionality is not None
+        return [[0.25] * output_dimensionality for _ in texts]
 
 
 def _payload() -> dict:
@@ -83,6 +95,7 @@ def _payload() -> dict:
         frame_results=frame_results,
         scene_outputs=scene_outputs,
         settings=_Settings(),
+        embedding_client=_StubEmbeddingClient(),
     )
 
 
@@ -98,3 +111,7 @@ def test_in_memory_ingest_is_idempotent():
     assert first["vector"]["chunks"] >= 1
     assert second["graph"]["nodes"] == first["graph"]["nodes"]
     assert second["vector"]["chunks"] == first["vector"]["chunks"]
+    chunk_payload = next(iter(vector.chunks.values()))
+    assert chunk_payload["model_id"] == "gemini-embedding-001"
+    assert chunk_payload["model_version"] == "v1"
+    assert len(chunk_payload["embedding"]) == _Settings.embedding_dimension
