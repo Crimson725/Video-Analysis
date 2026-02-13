@@ -46,7 +46,49 @@ ensure-podman:
 	}
 
 up: ensure-podman
-	$(COMPOSE_ENV) $(PODMAN_COMPOSE) up -d
+	@set -eu; \
+	python_cmd="$$(command -v python3 || command -v python || true)"; \
+	[ -n "$$python_cmd" ] || { \
+		echo "python or python3 is required to auto-select free ports for make up."; \
+		exit 127; \
+	}; \
+	port_in_use() { \
+		"$$python_cmd" -c 'import socket, sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(0.2); in_use = s.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0; s.close(); print("1" if in_use else "0")' "$$1"; \
+	}; \
+	pick_port() { \
+		port="$$1"; \
+		reserved_a="$${2:-}"; \
+		reserved_b="$${3:-}"; \
+		while :; do \
+			if [ "$$port" = "$$reserved_a" ] || [ "$$port" = "$$reserved_b" ] || [ "$$(port_in_use "$$port")" = "1" ]; then \
+				port=$$((port + 1)); \
+				if [ "$$port" -gt 65535 ]; then \
+					echo "Unable to find an available TCP port."; \
+					exit 125; \
+				fi; \
+				continue; \
+			fi; \
+			printf '%s' "$$port"; \
+			return 0; \
+		done; \
+	}; \
+	neo4j_http_port="$$(pick_port "$(CORPUS_NEO4J_HTTP_PORT)")"; \
+	neo4j_bolt_port="$$(pick_port "$(CORPUS_NEO4J_BOLT_PORT)" "$$neo4j_http_port")"; \
+	pgvector_port="$$(pick_port "$(CORPUS_PGVECTOR_PORT)" "$$neo4j_http_port" "$$neo4j_bolt_port")"; \
+	if [ "$$neo4j_http_port" != "$(CORPUS_NEO4J_HTTP_PORT)" ] || [ "$$neo4j_bolt_port" != "$(CORPUS_NEO4J_BOLT_PORT)" ] || [ "$$pgvector_port" != "$(CORPUS_PGVECTOR_PORT)" ]; then \
+		echo "Some requested ports are in use. Using free ports instead:"; \
+	fi; \
+	echo "  Neo4j HTTP: $$neo4j_http_port (requested $(CORPUS_NEO4J_HTTP_PORT))"; \
+	echo "  Neo4j Bolt: $$neo4j_bolt_port (requested $(CORPUS_NEO4J_BOLT_PORT))"; \
+	echo "  pgvector:   $$pgvector_port (requested $(CORPUS_PGVECTOR_PORT))"; \
+	CORPUS_NEO4J_HTTP_PORT="$$neo4j_http_port" \
+	CORPUS_NEO4J_BOLT_PORT="$$neo4j_bolt_port" \
+	CORPUS_PGVECTOR_PORT="$$pgvector_port" \
+	CORPUS_NEO4J_AUTH="$(CORPUS_NEO4J_AUTH)" \
+	CORPUS_PGVECTOR_USER="$(CORPUS_PGVECTOR_USER)" \
+	CORPUS_PGVECTOR_PASSWORD="$(CORPUS_PGVECTOR_PASSWORD)" \
+	CORPUS_PGVECTOR_DB="$(CORPUS_PGVECTOR_DB)" \
+	$(PODMAN_COMPOSE) up -d
 
 down: ensure-podman
 	$(COMPOSE_ENV) $(PODMAN_COMPOSE) down --remove-orphans
@@ -57,9 +99,43 @@ test-unit:
 test-integration:
 	@set -e; \
 	$(MAKE) ensure-podman; \
-	$(COMPOSE_ENV) $(PODMAN_COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true; \
-	$(COMPOSE_ENV) $(PODMAN_COMPOSE) up -d; \
+	python_cmd="$$(command -v python3 || command -v python || true)"; \
+	[ -n "$$python_cmd" ] || { \
+		echo "python or python3 is required to auto-select free ports for test-integration."; \
+		exit 127; \
+	}; \
+	port_in_use() { \
+		"$$python_cmd" -c 'import socket, sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(0.2); in_use = s.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0; s.close(); print("1" if in_use else "0")' "$$1"; \
+	}; \
+	pick_port() { \
+		port="$$1"; \
+		reserved_a="$${2:-}"; \
+		reserved_b="$${3:-}"; \
+		while :; do \
+			if [ "$$port" = "$$reserved_a" ] || [ "$$port" = "$$reserved_b" ] || [ "$$(port_in_use "$$port")" = "1" ]; then \
+				port=$$((port + 1)); \
+				if [ "$$port" -gt 65535 ]; then \
+					echo "Unable to find an available TCP port."; \
+					exit 125; \
+				fi; \
+				continue; \
+			fi; \
+			printf '%s' "$$port"; \
+			return 0; \
+		done; \
+	}; \
+	neo4j_http_port="$$(pick_port "$(CORPUS_NEO4J_HTTP_PORT)")"; \
+	neo4j_bolt_port="$$(pick_port "$(CORPUS_NEO4J_BOLT_PORT)" "$$neo4j_http_port")"; \
+	pgvector_port="$$(pick_port "$(CORPUS_PGVECTOR_PORT)" "$$neo4j_http_port" "$$neo4j_bolt_port")"; \
+	if [ "$$neo4j_http_port" != "$(CORPUS_NEO4J_HTTP_PORT)" ] || [ "$$neo4j_bolt_port" != "$(CORPUS_NEO4J_BOLT_PORT)" ] || [ "$$pgvector_port" != "$(CORPUS_PGVECTOR_PORT)" ]; then \
+		echo "Some requested ports are in use for test-integration. Using free ports instead:"; \
+	fi; \
+	echo "  Neo4j HTTP: $$neo4j_http_port (requested $(CORPUS_NEO4J_HTTP_PORT))"; \
+	echo "  Neo4j Bolt: $$neo4j_bolt_port (requested $(CORPUS_NEO4J_BOLT_PORT))"; \
+	echo "  pgvector:   $$pgvector_port (requested $(CORPUS_PGVECTOR_PORT))"; \
+	CORPUS_NEO4J_HTTP_PORT="$$neo4j_http_port" CORPUS_NEO4J_BOLT_PORT="$$neo4j_bolt_port" CORPUS_PGVECTOR_PORT="$$pgvector_port" CORPUS_NEO4J_AUTH="$(CORPUS_NEO4J_AUTH)" CORPUS_PGVECTOR_USER="$(CORPUS_PGVECTOR_USER)" CORPUS_PGVECTOR_PASSWORD="$(CORPUS_PGVECTOR_PASSWORD)" CORPUS_PGVECTOR_DB="$(CORPUS_PGVECTOR_DB)" $(PODMAN_COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	CORPUS_NEO4J_HTTP_PORT="$$neo4j_http_port" CORPUS_NEO4J_BOLT_PORT="$$neo4j_bolt_port" CORPUS_PGVECTOR_PORT="$$pgvector_port" CORPUS_NEO4J_AUTH="$(CORPUS_NEO4J_AUTH)" CORPUS_PGVECTOR_USER="$(CORPUS_PGVECTOR_USER)" CORPUS_PGVECTOR_PASSWORD="$(CORPUS_PGVECTOR_PASSWORD)" CORPUS_PGVECTOR_DB="$(CORPUS_PGVECTOR_DB)" $(PODMAN_COMPOSE) up -d; \
 	test_status=0; \
 	(cd $(BACKEND_DIR) && uv run pytest tests/integration -m integration -v) || test_status=$$?; \
-	$(COMPOSE_ENV) $(PODMAN_COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true; \
+	CORPUS_NEO4J_HTTP_PORT="$$neo4j_http_port" CORPUS_NEO4J_BOLT_PORT="$$neo4j_bolt_port" CORPUS_PGVECTOR_PORT="$$pgvector_port" CORPUS_NEO4J_AUTH="$(CORPUS_NEO4J_AUTH)" CORPUS_PGVECTOR_USER="$(CORPUS_PGVECTOR_USER)" CORPUS_PGVECTOR_PASSWORD="$(CORPUS_PGVECTOR_PASSWORD)" CORPUS_PGVECTOR_DB="$(CORPUS_PGVECTOR_DB)" $(PODMAN_COMPOSE) down -v --remove-orphans >/dev/null 2>&1 || true; \
 	exit $$test_status

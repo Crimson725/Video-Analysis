@@ -30,6 +30,20 @@ uv run python run.py
 - `GET /status/{job_id}` - Poll job status
 - `GET /results/{job_id}` - Get analysis JSON with signed R2 file URLs when completed
 
+## Pipeline Stage Order (LLM Boundary)
+
+`process_video()` executes stages in this order:
+
+1. scene detection + keyframe extraction
+2. per-keyframe CV analysis (segmentation, detection, face, enrichment)
+3. scene-understanding generation (`scene_narratives`, `video_synopsis`) when `ENABLE_SCENE_UNDERSTANDING_PIPELINE=true`
+4. corpus/KG/retrieval/embeddings build when `ENABLE_CORPUS_PIPELINE=true`
+
+LLM involvement is constrained to stage 3 (scene understanding). When scene understanding is disabled, results keep a stable shape with:
+
+- `scene_narratives: []`
+- `video_synopsis: null`
+
 ## Corpus/KG/RAG Pipeline Flags
 
 These flags are enabled by default and can be overridden per environment:

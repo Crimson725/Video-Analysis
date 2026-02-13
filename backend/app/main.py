@@ -102,6 +102,40 @@ def _resolve_cleanup_policy(request_override: bool | None) -> bool:
     return request_override
 
 
+def _default_scene_outputs() -> dict[str, Any]:
+    """Return stable default scene-understanding outputs."""
+    return {
+        "scene_narratives": [],
+        "video_synopsis": None,
+    }
+
+
+def _normalize_scene_outputs(raw_scene_outputs: Any) -> dict[str, Any]:
+    """Normalize scene-understanding outputs to a stable response shape."""
+    defaults = _default_scene_outputs()
+    if not isinstance(raw_scene_outputs, dict):
+        return defaults
+
+    raw_scene_narratives = raw_scene_outputs.get("scene_narratives", [])
+    if not isinstance(raw_scene_narratives, list):
+        scene_narratives: list[dict[str, Any]] = []
+    else:
+        scene_narratives = [
+            item
+            for item in raw_scene_narratives
+            if isinstance(item, dict)
+        ]
+
+    video_synopsis = raw_scene_outputs.get("video_synopsis")
+    if not isinstance(video_synopsis, dict):
+        video_synopsis = None
+
+    return {
+        "scene_narratives": scene_narratives,
+        "video_synopsis": video_synopsis,
+    }
+
+
 def _build_local_source_path(job_id: str, source_extension: str) -> Path:
     """Build deterministic local staging path for uploaded source video."""
     return TEMP_MEDIA_DIR / job_id / "input" / f"source.{source_extension}"
@@ -300,7 +334,13 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
         "video_synopsis": None,
         "corpus": None,
     }
-    for frame in result_payload.get("frames", []):
+    raw_frames = result_payload.get("frames", [])
+    if not isinstance(raw_frames, list):
+        raw_frames = []
+
+    for frame in raw_frames:
+        if not isinstance(frame, dict):
+            continue
         payload["frames"].append(
             _materialize_frame_result(
                 frame=frame,
@@ -309,7 +349,13 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
             )
         )
 
-    for scene_narrative in result_payload.get("scene_narratives", []):
+    raw_scene_narratives = result_payload.get("scene_narratives", [])
+    if not isinstance(raw_scene_narratives, list):
+        raw_scene_narratives = []
+
+    for scene_narrative in raw_scene_narratives:
+        if not isinstance(scene_narrative, dict):
+            continue
         payload["scene_narratives"].append(_materialize_scene_narrative(scene_narrative, media_store))
 
     payload["video_synopsis"] = _materialize_video_synopsis(result_payload.get("video_synopsis"), media_store)
@@ -509,17 +555,17 @@ def process_video(
             )
             frame_results.append(result)
 
-        scene_outputs: dict[str, Any] = {
-            "scene_narratives": [],
-            "video_synopsis": None,
-        }
+        # Keep LLM involvement constrained to scene understanding between CV and corpus stages.
+        scene_outputs: dict[str, Any] = _default_scene_outputs()
         if SETTINGS.enable_scene_understanding_pipeline:
-            scene_outputs = video_understanding.run_scene_understanding_pipeline(
-                job_id=job_id,
-                scenes=scenes,
-                frame_results=frame_results,
-                settings=SETTINGS,
-                media_store=media_store,
+            scene_outputs = _normalize_scene_outputs(
+                video_understanding.run_scene_understanding_pipeline(
+                    job_id=job_id,
+                    scenes=scenes,
+                    frame_results=frame_results,
+                    settings=SETTINGS,
+                    media_store=media_store,
+                )
             )
 
         corpus_output: dict[str, Any] | None = None

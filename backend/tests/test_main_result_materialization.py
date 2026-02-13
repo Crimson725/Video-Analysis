@@ -97,3 +97,34 @@ def test_materialize_signed_result_urls_signs_nested_artifacts():
     assert result["corpus"]["artifacts"]["graph_bundle"].startswith("https://signed.example/jobs/")
     assert result["corpus"]["artifacts"]["retrieval_bundle"].startswith("https://signed.example/jobs/")
     assert result["corpus"]["artifacts"]["embeddings_bundle"].startswith("https://signed.example/jobs/")
+
+
+def test_materialize_signed_result_urls_defaults_scene_fields_when_missing():
+    payload = {
+        "job_id": "job-9",
+        "frames": [],
+    }
+
+    result = _materialize_signed_result_urls(payload, _StubMediaStore())
+
+    assert result["frames"] == []
+    assert result["scene_narratives"] == []
+    assert result["video_synopsis"] is None
+    assert result["corpus"] is None
+
+
+def test_materialize_signed_result_urls_ignores_invalid_scene_and_frame_items():
+    payload = {
+        "job_id": "job-10",
+        "frames": ["invalid-frame"],
+        "scene_narratives": ["invalid-scene"],
+        "video_synopsis": "invalid",
+        "corpus": "invalid",
+    }
+
+    result = _materialize_signed_result_urls(payload, _StubMediaStore())
+
+    assert result["frames"] == []
+    assert result["scene_narratives"] == []
+    assert result["video_synopsis"] is None
+    assert result["corpus"] is None
