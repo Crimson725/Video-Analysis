@@ -24,10 +24,11 @@ from app.storage import MediaStoreError, R2MediaStore
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _TEST_VIDEO = _REPO_ROOT / "Test Videos" / "WhatCarCanYouGetForAGrand.mp4"
 _R2_ENV_FILE = _REPO_ROOT / "backend" / ".env.r2"
+_ENV_LOCAL_FILE = _REPO_ROOT / "backend" / ".env.local"
 _CORPUS_COMPOSE_FILE = _REPO_ROOT / "backend" / "docker-compose.corpus.yml"
 _CORPUS_COMPOSE_PROJECT = "video-analysis-corpus-itest"
-_DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT = 17687
-_DEFAULT_CORPUS_TEST_PGVECTOR_PORT = 15433
+_DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT = 47687
+_DEFAULT_CORPUS_TEST_PGVECTOR_PORT = 45433
 _OUTPUT_CONTENT_EXPECTATIONS = (
     Path(__file__).resolve().parent / "fixtures" / "output_content_expectations.json"
 )
@@ -71,7 +72,7 @@ def _skip_corpus_e2e_with_command(message: str) -> None:
     """Skip with an actionable command for enabling no-LLM corpus e2e tests."""
     command = (
         "cd backend && "
-        "RUN_CORPUS_E2E_INTEGRATION=1 ENABLE_SCENE_UNDERSTANDING_PIPELINE=false "
+        "ENABLE_SCENE_UNDERSTANDING_PIPELINE=false "
         "ENABLE_CORPUS_PIPELINE=true ENABLE_CORPUS_INGEST=true "
         "uv run pytest tests/integration/test_no_llm_corpus_e2e_integration.py -m integration -vv"
     )
@@ -530,12 +531,16 @@ def static_dir(tmp_path):
 
 @pytest.fixture(scope="session")
 def r2_store():
-    """Return a real R2 media store; missing credentials are a hard failure."""
+    """Return a real R2 media store, or skip when credentials are unavailable."""
     _load_env_file(_R2_ENV_FILE)
     settings = Settings.from_env()
     missing = settings.missing_r2_fields()
     if missing:
-        raise RuntimeError(f"Missing R2 settings for integration tests: {', '.join(missing)}")
+        pytest.skip(
+            "Missing R2 settings for integration tests: "
+            + ", ".join(missing)
+            + ". Configure backend/.env.r2 to enable this suite."
+        )
 
     return R2MediaStore(
         account_id=settings.r2_account_id,
@@ -569,9 +574,6 @@ def r2_test_job_id():
 @pytest.fixture(scope="session")
 def corpus_e2e_runtime():
     """Return runtime config for no-LLM corpus e2e tests, or skip with guidance."""
-    if _read_env("RUN_CORPUS_E2E_INTEGRATION") != "1":
-        _skip_corpus_e2e_with_command("RUN_CORPUS_E2E_INTEGRATION=1 is required")
-
     try:
         import neo4j  # noqa: F401
         import psycopg  # noqa: F401
@@ -684,6 +686,7 @@ def corpus_e2e_db_cleanup(corpus_e2e_backend_probe):
 @pytest.fixture(scope="session")
 def gemini_api_key():
     """Return Gemini API key for external-API integration tests, or skip."""
+    _load_env_file(_ENV_LOCAL_FILE)
     key = _read_env("GOOGLE_API_KEY")
     if not key:
         _skip_with_command(
@@ -721,6 +724,8 @@ def synopsis_e2e_settings(monkeypatch, gemini_api_key):
     _load_env_file(_R2_ENV_FILE)
     monkeypatch.setenv("GOOGLE_API_KEY", gemini_api_key)
     monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")
+    monkeypatch.setenv("ENABLE_CORPUS_PIPELINE", "false")
+    monkeypatch.setenv("ENABLE_CORPUS_INGEST", "false")
     settings = Settings.from_env()
 
     missing_r2 = settings.missing_r2_fields()

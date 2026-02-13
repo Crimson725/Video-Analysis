@@ -135,11 +135,10 @@ Behavior:
 
 ## No-LLM Corpus E2E Integration Test
 
-This opt-in integration test validates one full path: real CV `process_video` run, corpus artifact generation, Neo4j + pgvector ingest verification, and cleanup policy assertion with scene/synopsis LLM generation disabled.
+This integration test validates one full path: real CV `process_video` run, corpus artifact generation, Neo4j + pgvector ingest verification, and cleanup policy assertion with scene/synopsis LLM generation disabled.
 
 ```bash
 cd backend
-RUN_CORPUS_E2E_INTEGRATION=1 \
 ENABLE_SCENE_UNDERSTANDING_PIPELINE=false \
 ENABLE_CORPUS_PIPELINE=true \
 ENABLE_CORPUS_INGEST=true \
@@ -151,11 +150,10 @@ Notes:
 
 - Works with either Docker or Podman as long as local Neo4j + pgvector services are reachable.
 - Corpus embedding generation uses Gemini embeddings by default and requires `GOOGLE_API_KEY`.
-- On opt-in runs, the integration fixture attempts to start local Neo4j + pgvector automatically (`podman compose` first, Docker fallback) before skipping.
-- The suite uses isolated default DB endpoints (`bolt://127.0.0.1:17687`, `postgresql://video_analysis:video_analysis@127.0.0.1:15433/video_analysis`) to avoid conflicts with existing local DB services.
+- The integration fixture attempts to start local Neo4j + pgvector automatically (`podman compose` first, Docker fallback) before skipping.
+- The suite uses isolated default DB endpoints (`bolt://127.0.0.1:47687`, `postgresql://video_analysis:video_analysis@127.0.0.1:45433/video_analysis`) to avoid conflicts with existing local DB services.
 - The suite is pinned to the canonical real test video at `/Users/crimson2049/Video Analysis/Test Videos/WhatCarCanYouGetForAGrand.mp4` and does not use fake MP4 fixtures.
-- The test is skipped unless `RUN_CORPUS_E2E_INTEGRATION=1` is set.
-- Default `pytest` runs remain unchanged (`-m 'not integration'`).
+- Default `pytest` runs remain unchanged (`-m 'not integration'`), but `-m integration` runs now include this test.
 
 ## Video Synopsis End-to-End Integration Test (Live Gemini)
 

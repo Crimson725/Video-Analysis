@@ -65,6 +65,8 @@ def test_process_video_includes_scene_outputs(tmp_path):
     settings = SimpleNamespace(
         cleanup_local_video_after_upload_default=True,
         enable_scene_understanding_pipeline=True,
+        enable_corpus_pipeline=False,
+        enable_corpus_ingest=False,
     )
 
     job_id = jobs.create_job()
