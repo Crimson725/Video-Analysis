@@ -133,17 +133,17 @@ Use Cloudflare R2 lifecycle rules in each environment to:
 
 Reference helper payload: `/Users/crimson2049/Video Analysis/backend/docs/r2-lifecycle.example.json`
 
-## Analysis Artifact Layout (JSON + TOON)
+## Analysis Artifact Layout (JSON)
 
 Per-frame analysis artifacts are stored in deterministic keys under the same job namespace as source video and frame images:
 
 - `jobs/<job_id>/analysis/json/frame_<N>.json`
-- `jobs/<job_id>/analysis/toon/frame_<N>.toon`
 
-This keeps JSON/TOON outputs linked to:
+This keeps JSON outputs linked to:
 
 - source video: `jobs/<job_id>/input/source.<ext>`
 - frame images: `jobs/<job_id>/frames/{original|seg|det|face}/frame_<N>.jpg`
+- scene packets: `jobs/<job_id>/scene/packets/scene_<N>.json`
 
 ## Local Staging and Cleanup Policy
 
@@ -154,20 +154,7 @@ This keeps JSON/TOON outputs linked to:
   2. fallback to `CLEANUP_LOCAL_VIDEO_AFTER_UPLOAD_DEFAULT`
 - When cleanup is disabled, the scheduler preserves the retained source video and removes stale non-source artifacts.
 
-## TOON Conversion Runtime
-
-JSON-to-TOON conversion uses `@toon-format/toon` through a small Node helper runtime.
-
-Install helper dependencies once:
-
-```bash
-cd backend/scripts/toon_runtime
-npm install
-```
-
-The backend invokes `backend/scripts/toon_runtime/convert_toon.mjs` during frame artifact persistence.
-
-## R2 JSON/TOON Integration Test
+## R2 JSON Artifact Integration Test
 
 Run the targeted R2 read/write test:
 
@@ -179,7 +166,7 @@ uv run pytest tests/integration/test_r2_analysis_artifacts_integration.py -m int
 Behavior:
 
 - Skips when required R2 credentials/config are missing.
-- Writes JSON and TOON artifacts to R2, reads them back, and validates non-empty payloads.
+- Writes JSON artifacts to R2, reads them back, and validates payload integrity.
 - Always deletes test-created objects in teardown/finally, including failure-path scenarios.
 
 ## No-LLM Corpus E2E Integration Test

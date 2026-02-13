@@ -73,7 +73,7 @@ def test_worker_completes_task_and_persists_provenance():
                     "narrative_paragraph": "Scene summary.",
                     "key_moments": ["moment"],
                     "artifacts": {
-                        "packet": f"jobs/{job_id}/scene/packets/scene_0.toon",
+                        "packet": f"jobs/{job_id}/scene/packets/scene_0.json",
                         "narrative": f"jobs/{job_id}/scene/narratives/scene_0.json",
                     },
                     "trace": {"stage": "scene_narrative"},

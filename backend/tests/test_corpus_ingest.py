@@ -48,7 +48,6 @@ def _payload() -> dict:
             },
             "analysis_artifacts": {
                 "json": "jobs/job-1/analysis/json/frame_0.json",
-                "toon": "jobs/job-1/analysis/toon/frame_0.toon",
             },
             "metadata": {
                 "provenance": {
@@ -72,7 +71,7 @@ def _payload() -> dict:
                 "narrative_paragraph": "A person appears in the scene.",
                 "key_moments": ["person appears"],
                 "artifacts": {
-                    "packet": "jobs/job-1/scene/packets/scene_0.toon",
+                    "packet": "jobs/job-1/scene/packets/scene_0.json",
                     "narrative": "jobs/job-1/scene/narratives/scene_0.json",
                 },
                 "corpus": {

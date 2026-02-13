@@ -174,7 +174,6 @@ class TestGetResults:
                     },
                     "analysis_artifacts": {
                         "json": f"jobs/{job_id}/analysis/json/frame_0.json",
-                        "toon": f"jobs/{job_id}/analysis/toon/frame_0.toon",
                     },
                     "metadata": {
                         "provenance": {
@@ -197,7 +196,7 @@ class TestGetResults:
                     "narrative_paragraph": "Scene summary.",
                     "key_moments": ["moment 1"],
                     "artifacts": {
-                        "packet": f"jobs/{job_id}/scene/packets/scene_0.toon",
+                        "packet": f"jobs/{job_id}/scene/packets/scene_0.json",
                         "narrative": f"jobs/{job_id}/scene/narratives/scene_0.json",
                     },
                 }
@@ -218,7 +217,7 @@ class TestGetResults:
         assert len(data["frames"]) == 1
         assert data["frames"][0]["files"]["original"].startswith("https://signed.example/jobs/")
         assert data["frames"][0]["analysis_artifacts"]["json"].startswith("https://signed.example/jobs/")
-        assert data["frames"][0]["analysis_artifacts"]["toon"].startswith("https://signed.example/jobs/")
+        assert "toon" not in data["frames"][0]["analysis_artifacts"]
         assert data["scene_narratives"][0]["artifacts"]["packet"].startswith("https://signed.example/jobs/")
         assert data["scene_narratives"][0]["artifacts"]["narrative"].startswith("https://signed.example/jobs/")
         assert data["video_synopsis"]["artifact"].startswith("https://signed.example/jobs/")

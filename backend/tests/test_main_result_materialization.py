@@ -26,7 +26,6 @@ def test_materialize_signed_result_urls_normalizes_frame_fields():
                 },
                 "analysis_artifacts": {
                     "json": "jobs/job-123/analysis/json/frame_7.json",
-                    "toon": "jobs/job-123/analysis/toon/frame_7.toon",
                 },
                 "metadata": None,
             }
@@ -61,7 +60,7 @@ def test_materialize_signed_result_urls_signs_nested_artifacts():
                 "narrative_paragraph": "A short summary.",
                 "key_moments": [],
                 "artifacts": {
-                    "packet": "jobs/job-8/scene/packets/scene_0.toon",
+                    "packet": "jobs/job-8/scene/packets/scene_0.json",
                     "narrative": "jobs/job-8/scene/narratives/scene_0.json",
                 },
                 "corpus": {

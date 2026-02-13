@@ -31,7 +31,6 @@ def _frame_payload(job_id: str) -> dict:
         },
         "analysis_artifacts": {
             "json": f"jobs/{job_id}/analysis/json/frame_0.json",
-            "toon": f"jobs/{job_id}/analysis/toon/frame_0.toon",
         },
         "metadata": {
             "provenance": {

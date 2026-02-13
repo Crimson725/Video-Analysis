@@ -110,7 +110,6 @@ class TestJobResult:
                     ),
                     analysis_artifacts=AnalysisArtifacts(
                         json="https://example.com/jobs/abc/analysis/json/frame_0.json?sig=1",
-                        toon="https://example.com/jobs/abc/analysis/toon/frame_0.toon?sig=1",
                     ),
                     metadata={
                         "provenance": {
@@ -147,7 +146,7 @@ class TestJobResult:
                 narrative_paragraph="test",
                 key_moments=[],
                 artifacts=SceneArtifacts(
-                    packet="jobs/j/scene/packets/scene_0.toon",
+                    packet="jobs/j/scene/packets/scene_0.json",
                     narrative="jobs/j/scene/narratives/scene_0.json",
                 ),
             )
@@ -164,7 +163,7 @@ class TestJobResult:
                     narrative_paragraph="Scene summary.",
                     key_moments=["moment 1"],
                     artifacts=SceneArtifacts(
-                        packet="jobs/j/scene/packets/scene_0.toon",
+                        packet="jobs/j/scene/packets/scene_0.json",
                         narrative="jobs/j/scene/narratives/scene_0.json",
                     ),
                     trace={"stage": "scene_narrative"},

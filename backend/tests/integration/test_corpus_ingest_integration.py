@@ -75,7 +75,6 @@ def _frame(job_id: str, frame_id: int) -> dict:
         },
         "analysis_artifacts": {
             "json": f"jobs/{job_id}/analysis/json/frame_{frame_id}.json",
-            "toon": f"jobs/{job_id}/analysis/toon/frame_{frame_id}.toon",
         },
         "metadata": {
             "provenance": {
@@ -196,7 +195,7 @@ def test_ingest_into_local_neo4j_and_pgvector(gemini_api_key):
                 "narrative_paragraph": "A person appears in the scene.",
                 "key_moments": ["person appears"],
                 "artifacts": {
-                    "packet": f"jobs/{job_id}/scene/packets/scene_0.toon",
+                    "packet": f"jobs/{job_id}/scene/packets/scene_0.json",
                     "narrative": f"jobs/{job_id}/scene/narratives/scene_0.json",
                 },
                 "corpus": {

@@ -252,7 +252,6 @@ def _materialize_frame_result(
     raw_artifacts = frame.get("analysis_artifacts", {})
     analysis_artifacts = {
         "json": _to_signed_url_if_needed(raw_artifacts.get("json"), media_store),
-        "toon": _to_signed_url_if_needed(raw_artifacts.get("toon"), media_store),
     }
     frame_id = int(frame.get("frame_id", 0))
     timestamp = str(frame.get("timestamp", ""))

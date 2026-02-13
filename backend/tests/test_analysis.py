@@ -442,7 +442,7 @@ class TestAnalyzeFrame:
         assert "face_recognition" in result["analysis"]
         assert "enrichment" in result["analysis"]
         assert result["analysis_artifacts"]["json"] == "jobs/job-1/analysis/json/frame_0.json"
-        assert result["analysis_artifacts"]["toon"] == "jobs/job-1/analysis/toon/frame_0.toon"
+        assert set(result["analysis_artifacts"].keys()) == {"json"}
         assert "metadata" in result
         assert result["metadata"]["provenance"]["job_id"] == "job-1"
         assert len(result["analysis"]["semantic_segmentation"]) == 1
@@ -453,12 +453,11 @@ class TestAnalyzeFrame:
         mock_det.assert_called_once()
         mock_face.assert_called_once()
 
-    @patch("app.analysis.convert_json_to_toon", return_value=b"TOON_DATA")
     @patch("app.analysis.run_face_recognition")
     @patch("app.analysis.run_detection")
     @patch("app.analysis.run_segmentation")
-    def test_persists_json_and_toon_for_contract_valid_payload(
-        self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
+    def test_persists_json_for_contract_valid_payload(
+        self, mock_seg, mock_det, mock_face, mock_models, static_dir
     ):
         mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
         mock_det.return_value = [
@@ -477,25 +476,22 @@ class TestAnalyzeFrame:
 
         analyze_frame(frame_data, mock_models, "job-1", static_dir, media_store=media_store)
 
-        assert media_store.upload_analysis_artifact.call_count == 2
+        assert media_store.upload_analysis_artifact.call_count == 1
         first_call = media_store.upload_analysis_artifact.call_args_list[0]
-        second_call = media_store.upload_analysis_artifact.call_args_list[1]
 
         assert first_call.args[0:3] == ("job-1", "json", 0)
         json_payload = json.loads(first_call.args[3].decode("utf-8"))
         assert json_payload["frame_id"] == 0
         assert set(json_payload["files"].keys()) == {"original", "segmentation", "detection", "face"}
-        assert set(json_payload["analysis_artifacts"].keys()) == {"json", "toon"}
+        assert set(json_payload["analysis_artifacts"].keys()) == {"json"}
         assert "metadata" in json_payload
         assert json_payload["analysis"]["object_detection"][0]["track_id"] == "car_1"
-        assert second_call.args[0:4] == ("job-1", "toon", 0, b"TOON_DATA")
 
-    @patch("app.analysis.convert_json_to_toon", return_value=b"TOON_DATA")
     @patch("app.analysis.run_face_recognition")
     @patch("app.analysis.run_detection")
     @patch("app.analysis.run_segmentation")
     def test_persists_json_for_multiple_frames_with_deterministic_keys(
-        self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
+        self, mock_seg, mock_det, mock_face, mock_models, static_dir
     ):
         mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
         mock_det.return_value = [
@@ -547,12 +543,11 @@ class TestAnalyzeFrame:
 
         media_store.upload_analysis_artifact.assert_not_called()
 
-    @patch("app.analysis.convert_json_to_toon", side_effect=RuntimeError("toon conversion failed"))
     @patch("app.analysis.run_face_recognition")
     @patch("app.analysis.run_detection")
     @patch("app.analysis.run_segmentation")
-    def test_conversion_failure_cleans_up_analysis_artifacts(
-        self, mock_seg, mock_det, mock_face, _mock_toon, mock_models, static_dir
+    def test_persist_failure_cleans_up_analysis_artifacts(
+        self, mock_seg, mock_det, mock_face, mock_models, static_dir
     ):
         mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
         mock_det.return_value = [
@@ -563,6 +558,7 @@ class TestAnalyzeFrame:
         ]
 
         media_store = MagicMock()
+        media_store.upload_analysis_artifact.side_effect = RuntimeError("json upload failed")
         frame_data = {
             "image": np.zeros((100, 100, 3), dtype=np.uint8),
             "frame_id": 3,
@@ -574,4 +570,3 @@ class TestAnalyzeFrame:
 
         delete_keys = [c.args[0] for c in media_store.delete_object.call_args_list]
         assert "jobs/job-7/analysis/json/frame_3.json" in delete_keys
-        assert "jobs/job-7/analysis/toon/frame_3.toon" in delete_keys

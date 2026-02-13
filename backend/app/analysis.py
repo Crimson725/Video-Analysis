@@ -18,7 +18,6 @@ from app.storage import (
     build_analysis_key,
     build_frame_key,
 )
-from app.toon import ToonConversionError, convert_json_to_toon
 
 if TYPE_CHECKING:
     from app.storage import MediaStore
@@ -486,7 +485,7 @@ def _cleanup_analysis_artifacts(
     frame_id: int,
 ) -> None:
     """Best-effort cleanup for per-frame analysis artifacts."""
-    for artifact_kind in ("json", "toon"):
+    for artifact_kind in ("json",):
         object_key = build_analysis_key(job_id, artifact_kind, frame_id)
         try:
             media_store.delete_object(object_key)
@@ -502,7 +501,7 @@ def _persist_analysis_artifacts(
     job_id: str,
     frame_id: int,
 ) -> None:
-    """Validate payload, persist JSON artifact, convert to TOON, and persist TOON."""
+    """Validate payload and persist JSON analysis artifact."""
     try:
         validated = FrameResult.model_validate(frame_payload)
     except ValidationError as exc:
@@ -511,12 +510,9 @@ def _persist_analysis_artifacts(
         ) from exc
 
     json_payload = validated.model_dump_json(by_alias=True).encode("utf-8")
-    media_store.upload_analysis_artifact(job_id, "json", frame_id, json_payload)
-
     try:
-        toon_payload = convert_json_to_toon(json_payload)
-        media_store.upload_analysis_artifact(job_id, "toon", frame_id, toon_payload)
-    except (MediaStoreError, ToonConversionError, RuntimeError) as exc:
+        media_store.upload_analysis_artifact(job_id, "json", frame_id, json_payload)
+    except (MediaStoreError, RuntimeError) as exc:
         _cleanup_analysis_artifacts(media_store, job_id, frame_id)
         raise RuntimeError(
             f"Failed to persist analysis artifacts for frame {frame_id}"
@@ -829,7 +825,6 @@ def analyze_frame(
         },
         "analysis_artifacts": {
             "json": analysis_key,
-            "toon": build_analysis_key(job_id, "toon", frame_id),
         },
         "metadata": metadata,
     }

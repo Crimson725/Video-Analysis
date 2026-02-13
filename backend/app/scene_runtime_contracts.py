@@ -37,7 +37,7 @@ class KeyframeRef:
 
 @dataclass(slots=True)
 class ScenePacket:
-    """TOON-first scene packet used as narrative model input."""
+    """JSON-first scene packet used as narrative model input."""
 
     scene_id: int
     start_sec: float
@@ -55,7 +55,7 @@ class ScenePacket:
     retrieval_chunks: list[dict[str, Any]]
     graph_bundle_key: str
     retrieval_bundle_key: str
-    toon_payload: str
+    packet_payload: str
     packet_key: str
 
 
@@ -87,7 +87,7 @@ class SceneLLMClient(Protocol):
     """LLM abstraction for scene narrative and synopsis refinement."""
 
     def generate_scene_narrative(self, prompt: str, scene_packet: ScenePacket) -> dict[str, Any]:
-        """Generate structured scene narrative from a TOON prompt."""
+        """Generate structured scene narrative from a JSON packet prompt."""
 
     def refine_synopsis(
         self,

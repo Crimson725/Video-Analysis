@@ -150,7 +150,6 @@ class AnalysisArtifacts(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     json_artifact: str = Field(..., alias="json")
-    toon: str
 
 
 class FrameResult(BaseModel):

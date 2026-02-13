@@ -183,7 +183,6 @@ class TestProcessVideoFrameContent:
             assert frame.files.detection, "detection file path is empty"
             assert frame.files.face, "face file path is empty"
             assert frame.analysis_artifacts.json_artifact, "json analysis artifact path is empty"
-            assert frame.analysis_artifacts.toon, "toon analysis artifact path is empty"
 
             # analysis: all three lists present (may be empty for some frames)
             assert isinstance(frame.analysis.semantic_segmentation, list)

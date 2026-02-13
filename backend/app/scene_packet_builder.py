@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import TYPE_CHECKING, Any
 
 from app.scene_runtime_contracts import (
@@ -30,9 +31,9 @@ def parse_timestamp_seconds(timestamp: str) -> float:
     return hours * 3600 + minutes * 60 + seconds
 
 
-def safe_toon_value(value: str) -> str:
-    """Normalize values for compact TOON row encoding."""
-    return value.replace(",", " ").replace("\n", " ").strip() or "unknown"
+def safe_packet_value(value: str) -> str:
+    """Normalize values used in packet payloads."""
+    return value.strip() or "unknown"
 
 
 def select_scene_frames(
@@ -53,11 +54,11 @@ def collect_entities(scene_frames: list[dict[str, Any]], settings: "Settings") -
     for frame in scene_frames:
         analysis = frame.get("analysis", {})
         for det in analysis.get("object_detection", []):
-            name = safe_toon_value(str(det.get("label", "unknown")))
+            name = safe_packet_value(str(det.get("label", "unknown")))
             key = (name, "object")
             counts[key] = counts.get(key, 0) + 1
         for seg in analysis.get("semantic_segmentation", []):
-            name = safe_toon_value(str(seg.get("class", "unknown")))
+            name = safe_packet_value(str(seg.get("class", "unknown")))
             key = (name, "object")
             counts[key] = counts.get(key, 0) + 1
         face_count = len(analysis.get("face_recognition", []))
@@ -386,32 +387,45 @@ def build_retrieval_chunks(
     ]
 
 
-def serialize_scene_packet_toon(packet: ScenePacket) -> str:
-    """Serialize scene packet with deterministic compact TOON ordering."""
-    lines = [
-        "scene{sceneId,startSec,endSec,durationSec,objectsTotal,facesTotal,uniqueLabels,keyframes}:",
-        (
-            f"  {packet.scene_id},{packet.start_sec:.3f},{packet.end_sec:.3f},"
-            f"{packet.duration_sec:.3f},{packet.objects_total},{packet.faces_total},"
-            f"{packet.unique_labels},{len(packet.keyframes)}"
-        ),
-        f"entities[{len(packet.entities)}]{{name,type,count}}:",
-    ]
-    for entity in packet.entities:
-        lines.append(f"  {safe_toon_value(entity.name)},{entity.entity_type},{entity.count}")
-
-    lines.append(f"events[{len(packet.events)}]{{event,count,evidence}}:")
-    for event in packet.events:
-        lines.append(
-            f"  {safe_toon_value(event.event)},{event.count},{safe_toon_value(event.evidence)}"
-        )
-
-    lines.append(f"keyframes[{len(packet.keyframes)}]{{frameId,timestamp,uri}}:")
-    for keyframe in packet.keyframes:
-        lines.append(
-            f"  {keyframe.frame_id},{safe_toon_value(keyframe.timestamp)},{safe_toon_value(keyframe.uri)}"
-        )
-    return "\n".join(lines) + "\n"
+def serialize_scene_packet_json(packet: ScenePacket) -> str:
+    """Serialize scene packet to deterministic JSON for prompt + storage."""
+    payload = {
+        "scene": {
+            "scene_id": packet.scene_id,
+            "start_sec": packet.start_sec,
+            "end_sec": packet.end_sec,
+            "duration_sec": packet.duration_sec,
+            "objects_total": packet.objects_total,
+            "faces_total": packet.faces_total,
+            "unique_labels": packet.unique_labels,
+            "keyframes_count": len(packet.keyframes),
+        },
+        "entities": [
+            {
+                "name": safe_packet_value(entity.name),
+                "type": entity.entity_type,
+                "count": entity.count,
+            }
+            for entity in packet.entities
+        ],
+        "events": [
+            {
+                "event": safe_packet_value(event.event),
+                "count": event.count,
+                "evidence": safe_packet_value(event.evidence),
+            }
+            for event in packet.events
+        ],
+        "keyframes": [
+            {
+                "frame_id": keyframe.frame_id,
+                "timestamp": safe_packet_value(keyframe.timestamp),
+                "uri": safe_packet_value(keyframe.uri),
+            }
+            for keyframe in packet.keyframes
+        ],
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def validate_narrative_faithfulness(scene_packet: ScenePacket, narrative: SceneNarrativeModel) -> None:
@@ -504,16 +518,16 @@ def build_scene_packets(
             retrieval_chunks=retrieval_chunks,
             graph_bundle_key=graph_bundle_key,
             retrieval_bundle_key=retrieval_bundle_key,
-            toon_payload="",
+            packet_payload="",
             packet_key=packet_key,
         )
-        toon_payload = serialize_scene_packet_toon(packet)
-        packet.toon_payload = toon_payload
+        packet_payload = serialize_scene_packet_json(packet)
+        packet.packet_payload = packet_payload
         media_store.upload_scene_artifact(
             job_id=job_id,
             artifact_kind="packet",
             scene_id=scene_id,
-            payload=toon_payload.encode("utf-8"),
+            payload=packet_payload.encode("utf-8"),
         )
         packets.append(packet)
     return packets

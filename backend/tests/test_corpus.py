@@ -78,7 +78,6 @@ def _frame(frame_id: int, timestamp: str) -> dict:
         },
         "analysis_artifacts": {
             "json": f"jobs/job-1/analysis/json/frame_{frame_id}.json",
-            "toon": f"jobs/job-1/analysis/toon/frame_{frame_id}.toon",
         },
         "metadata": {
             "provenance": {
@@ -104,7 +103,7 @@ def _scene_outputs() -> dict:
                 "narrative_paragraph": "A person appears in frame and looks at EXIT sign.",
                 "key_moments": ["person appears"],
                 "artifacts": {
-                    "packet": "jobs/job-1/scene/packets/scene_0.toon",
+                    "packet": "jobs/job-1/scene/packets/scene_0.json",
                     "narrative": "jobs/job-1/scene/narratives/scene_0.json",
                 },
                 "corpus": {
@@ -140,7 +139,7 @@ def _scene_outputs() -> dict:
                             "chunk_id": "chunk_1",
                             "text": "A person appears near EXIT sign.",
                             "source_entity_ids": ["entity_person"],
-                            "artifact_keys": ["jobs/job-1/scene/packets/scene_0.toon"],
+                            "artifact_keys": ["jobs/job-1/scene/packets/scene_0.json"],
                             "temporal_span": {
                                 "first_seen": 0.0,
                                 "last_seen": 4.0,

@@ -30,7 +30,6 @@ def _frame_payload(job_id: str) -> dict:
         },
         "analysis_artifacts": {
             "json": f"jobs/{job_id}/analysis/json/frame_0.json",
-            "toon": f"jobs/{job_id}/analysis/toon/frame_0.toon",
         },
     }
 
@@ -59,7 +58,6 @@ def test_process_video_includes_scene_outputs(tmp_path):
         },
         "analysis_artifacts": {
             "json": "jobs/job-1/analysis/json/frame_0.json",
-            "toon": "jobs/job-1/analysis/toon/frame_0.toon",
         },
     }
 
@@ -72,7 +70,7 @@ def test_process_video_includes_scene_outputs(tmp_path):
                 "narrative_paragraph": "Scene summary.",
                 "key_moments": ["moment 1"],
                 "artifacts": {
-                    "packet": "jobs/job-1/scene/packets/scene_0.toon",
+                    "packet": "jobs/job-1/scene/packets/scene_0.json",
                     "narrative": "jobs/job-1/scene/narratives/scene_0.json",
                 },
             }
@@ -146,7 +144,7 @@ def test_process_video_runs_scene_understanding_between_cv_and_corpus(tmp_path):
                 "narrative_paragraph": "Scene summary.",
                 "key_moments": ["moment 1"],
                 "artifacts": {
-                    "packet": f"jobs/{job_id}/scene/packets/scene_0.toon",
+                    "packet": f"jobs/{job_id}/scene/packets/scene_0.json",
                     "narrative": f"jobs/{job_id}/scene/narratives/scene_0.json",
                 },
             }

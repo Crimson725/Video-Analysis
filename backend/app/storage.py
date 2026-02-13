@@ -7,7 +7,7 @@ from typing import Any, Literal, Protocol
 
 
 FrameKind = Literal["original", "seg", "det", "face"]
-AnalysisArtifactKind = Literal["json", "toon"]
+AnalysisArtifactKind = Literal["json"]
 SceneArtifactKind = Literal["packet", "narrative"]
 SummaryArtifactKind = Literal["synopsis"]
 CorpusArtifactKind = Literal["graph", "retrieval", "embeddings"]
@@ -21,17 +21,14 @@ _FRAME_PREFIX: dict[FrameKind, str] = {
 
 _ANALYSIS_PREFIX: dict[AnalysisArtifactKind, str] = {
     "json": "json",
-    "toon": "toon",
 }
 
 _ANALYSIS_EXTENSION: dict[AnalysisArtifactKind, str] = {
     "json": "json",
-    "toon": "toon",
 }
 
 _ANALYSIS_CONTENT_TYPE: dict[AnalysisArtifactKind, str] = {
     "json": "application/json",
-    "toon": "application/x-toon",
 }
 
 _SCENE_PREFIX: dict[SceneArtifactKind, str] = {
@@ -40,12 +37,12 @@ _SCENE_PREFIX: dict[SceneArtifactKind, str] = {
 }
 
 _SCENE_EXTENSION: dict[SceneArtifactKind, str] = {
-    "packet": "toon",
+    "packet": "json",
     "narrative": "json",
 }
 
 _SCENE_CONTENT_TYPE: dict[SceneArtifactKind, str] = {
-    "packet": "application/x-toon",
+    "packet": "application/json",
     "narrative": "application/json",
 }
 

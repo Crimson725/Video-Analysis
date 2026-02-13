@@ -34,14 +34,11 @@ class TestKeyBuilders:
     def test_build_analysis_json_key(self):
         assert build_analysis_key("job-123", "json", 42) == "jobs/job-123/analysis/json/frame_42.json"
 
-    def test_build_analysis_toon_key(self):
-        assert build_analysis_key("job-123", "toon", 42) == "jobs/job-123/analysis/toon/frame_42.toon"
-
     def test_build_r2_endpoint(self):
         assert build_r2_endpoint("abc") == "https://abc.r2.cloudflarestorage.com"
 
     def test_build_scene_packet_key(self):
-        assert build_scene_key("job-123", "packet", 2) == "jobs/job-123/scene/packets/scene_2.toon"
+        assert build_scene_key("job-123", "packet", 2) == "jobs/job-123/scene/packets/scene_2.json"
 
     def test_build_scene_narrative_key(self):
         assert (
@@ -138,20 +135,6 @@ class TestR2MediaStore:
             ContentType="application/json",
         )
 
-    def test_upload_analysis_toon_sets_toon_content_type(self):
-        mock_client = MagicMock()
-        store = self._make_store(mock_client)
-
-        object_key = store.upload_analysis_artifact("job-9", "toon", 3, b"TOON_PAYLOAD")
-
-        assert object_key == "jobs/job-9/analysis/toon/frame_3.toon"
-        mock_client.put_object.assert_called_once_with(
-            Bucket="bucket-1",
-            Key="jobs/job-9/analysis/toon/frame_3.toon",
-            Body=b"TOON_PAYLOAD",
-            ContentType="application/x-toon",
-        )
-
     def test_sign_read_url_uses_ttl(self):
         mock_client = MagicMock()
         mock_client.generate_presigned_url.return_value = "https://signed.example/file.jpg"
@@ -166,18 +149,18 @@ class TestR2MediaStore:
             ExpiresIn=600,
         )
 
-    def test_upload_scene_packet_sets_toon_content_type(self):
+    def test_upload_scene_packet_sets_json_content_type(self):
         mock_client = MagicMock()
         store = self._make_store(mock_client)
 
-        object_key = store.upload_scene_artifact("job-9", "packet", 3, b"TOON_PAYLOAD")
+        object_key = store.upload_scene_artifact("job-9", "packet", 3, b'{"scene_id":3}')
 
-        assert object_key == "jobs/job-9/scene/packets/scene_3.toon"
+        assert object_key == "jobs/job-9/scene/packets/scene_3.json"
         mock_client.put_object.assert_called_once_with(
             Bucket="bucket-1",
-            Key="jobs/job-9/scene/packets/scene_3.toon",
-            Body=b"TOON_PAYLOAD",
-            ContentType="application/x-toon",
+            Key="jobs/job-9/scene/packets/scene_3.json",
+            Body=b'{"scene_id":3}',
+            ContentType="application/json",
         )
 
     def test_upload_scene_narrative_sets_json_content_type(self):
@@ -249,11 +232,11 @@ class TestR2MediaStore:
         mock_client = MagicMock()
         store = self._make_store(mock_client)
 
-        store.delete_object("jobs/job-1/analysis/toon/frame_0.toon")
+        store.delete_object("jobs/job-1/analysis/json/frame_0.json")
 
         mock_client.delete_object.assert_called_once_with(
             Bucket="bucket-1",
-            Key="jobs/job-1/analysis/toon/frame_0.toon",
+            Key="jobs/job-1/analysis/json/frame_0.json",
         )
 
     def test_verify_object_true_when_head_succeeds(self):

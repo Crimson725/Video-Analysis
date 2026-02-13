@@ -8,7 +8,7 @@ import operator
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 
-from app.scene_packet_builder import build_scene_packets, serialize_scene_packet_toon
+from app.scene_packet_builder import build_scene_packets, serialize_scene_packet_json
 from app.scene_runtime_contracts import SceneLLMClient, SceneNarrative, ScenePacket
 from app.scene_worker_runtime import (
     FallbackSceneLLMClient,
@@ -44,7 +44,7 @@ __all__ = [
     "build_scene_llm_client",
     "build_scene_prompt",
     "run_scene_understanding_pipeline",
-    "serialize_scene_packet_toon",
+    "serialize_scene_packet_json",
     "sort_scene_narratives",
 ]
 

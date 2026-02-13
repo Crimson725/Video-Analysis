@@ -1,5 +1,6 @@
 """Unit tests for app.video_understanding."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -93,7 +94,6 @@ def _frame(frame_id: int, timestamp: str, labels: list[str], faces: int = 0) -> 
         },
         "analysis_artifacts": {
             "json": f"jobs/job-1/analysis/json/frame_{frame_id}.json",
-            "toon": f"jobs/job-1/analysis/toon/frame_{frame_id}.toon",
         },
         "metadata": {
             "provenance": {
@@ -158,7 +158,8 @@ def test_keyframe_policy_respects_max_limit(monkeypatch):
 
     assert len(result["scene_narratives"]) == 1
     packet_payload = [payload for kind, _scene_id, payload in store.scene_uploads if kind == "packet"][0].decode("utf-8")
-    assert "keyframes[2]{frameId,timestamp,uri}:" in packet_payload
+    packet = json.loads(packet_payload)
+    assert len(packet["keyframes"]) == 2
 
 
 def test_retries_on_faithfulness_failure(monkeypatch):
@@ -275,33 +276,24 @@ def test_packet_builder_ignores_runtime_prompt_and_model_policy_changes():
         media_store=store_v2,
     )
 
-    assert [packet.toon_payload for packet in packets_v1] == [packet.toon_payload for packet in packets_v2]
+    assert [packet.packet_payload for packet in packets_v1] == [packet.packet_payload for packet in packets_v2]
     assert [packet.corpus_entities for packet in packets_v1] == [packet.corpus_entities for packet in packets_v2]
     assert [packet.corpus_events for packet in packets_v1] == [packet.corpus_events for packet in packets_v2]
     assert [packet.corpus_relations for packet in packets_v1] == [packet.corpus_relations for packet in packets_v2]
     assert [packet.retrieval_chunks for packet in packets_v1] == [packet.retrieval_chunks for packet in packets_v2]
 
 
-def test_parse_scene_json_accepts_fenced_block():
-    payload = """
-    ```json
-    {"narrative_paragraph":"Scene summary.","key_moments":["moment 1"],"mentioned_entities":[],"mentioned_events":[]}
-    ```
-    """
+def test_parse_scene_json_accepts_strict_json():
+    payload = '{"narrative_paragraph":"Scene summary.","key_moments":["moment 1"],"mentioned_entities":[],"mentioned_events":[]}'
     parsed = GeminiSceneLLMClient._parse_scene_json(payload)
     assert parsed["narrative_paragraph"] == "Scene summary."
     assert parsed["key_moments"] == ["moment 1"]
 
 
-def test_parse_scene_json_accepts_wrapped_response():
-    payload = (
-        "Here is the JSON result:\n"
-        '{"narrative_paragraph":"Scene summary.","key_moments":["moment 1"],'
-        '"mentioned_entities":[],"mentioned_events":[]}'
-    )
-    parsed = GeminiSceneLLMClient._parse_scene_json(payload)
-    assert parsed["narrative_paragraph"] == "Scene summary."
-    assert parsed["key_moments"] == ["moment 1"]
+def test_parse_scene_json_rejects_wrapped_response():
+    payload = "Here is the JSON result:\n{}"
+    with pytest.raises(ValueError):
+        GeminiSceneLLMClient._parse_scene_json(payload)
 
 
 def test_parse_scene_json_rejects_non_json():

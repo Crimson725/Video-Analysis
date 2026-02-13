@@ -5,85 +5,165 @@ End-to-end workflow: upload/stage video -> per-frame CV analysis -> optional sce
 ```mermaid
 flowchart TD
     %% Styling
-    classDef api fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
-    classDef process fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
-    classDef decision fill:#fff8e1,stroke:#e65100,stroke-width:2px;
-    classDef storage fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
-    classDef output fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
+    classDef api fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px
+    classDef process fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef decision fill:#fff8e1,stroke:#e65100,stroke-width:2px
+    classDef storage fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef output fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef llm fill:#fce4ec,stroke:#880e4f,stroke-width:2px
 
-    %% Stage 1: Upload + staging
-    User([User / Client]):::api --> AnalyzeEndpoint[POST /analyze-video]:::api
-    AnalyzeEndpoint --> ReturnJob[[202 + job_id]]:::output
-    AnalyzeEndpoint --> LocalStage[Local staged source\nTEMP_MEDIA_DIR/job_id/input/source.ext]:::process
-    LocalStage --> ProcessVideo[Background task:\nprocess_video]:::process
-    ProcessVideo --> UploadSource[Upload source video]:::process
-    UploadSource --> R2Source[(R2: jobs/job_id/input/source.ext)]:::storage
-    R2Source --> VerifySource{Source upload\nverified?}:::decision
+    %% ── Stage 1: Upload & Staging ──
+    subgraph S1[" 1 · Upload & Staging "]
+        User([User / Client]):::api
+        AnalyzeEndpoint[POST /analyze-video]:::api
+        ReturnJob[[202 + job_id]]:::output
+        LocalStage[Stage source locally]:::process
+        ProcessVideo[Background: process_video]:::process
+        UploadSource[Upload source to R2]:::process
+        R2Source[(R2: input/source)]:::storage
+        VerifySource{Source upload verified?}:::decision
 
-    %% Stage 2: Scene detection + keyframes
-    VerifySource -->|yes| SceneDetect[scene.detect_scenes]:::process
-    SceneDetect --> KeyframeExtract[scene.extract_keyframes]:::process
-    KeyframeExtract --> SaveOriginal[scene.save_original_frames]:::process
-    SaveOriginal --> R2Original[(R2: frames/original)]:::storage
+        User --> AnalyzeEndpoint
+        AnalyzeEndpoint --> ReturnJob
+        AnalyzeEndpoint --> LocalStage
+        LocalStage --> ProcessVideo
+        ProcessVideo --> UploadSource
+        UploadSource --> R2Source
+        R2Source --> VerifySource
+    end
 
-    %% Stage 3: Per-frame CV analysis
-    KeyframeExtract --> AnalyzeFrame[analysis.analyze_frame\n(per keyframe)]:::process
-    AnalyzeFrame --> YOLOSeg[YOLO segmentation]:::process
-    AnalyzeFrame --> YOLODet[YOLO detection]:::process
-    AnalyzeFrame --> MTCNN[MTCNN face detection]:::process
-    YOLODet --> ObjTrack[ObjectTrackTracker]:::process
-    MTCNN --> FaceTrack[FaceIdentityTracker]:::process
-    AnalyzeFrame -. optional .-> Enrichment[Optional enrichers:\nOCR, pose, action, camera motion, quality]:::process
+    %% ── Stage 2: Scene Detection & Keyframes ──
+    subgraph S2[" 2 · Scene Detection & Keyframes "]
+        SceneDetect[Detect scenes]:::process
+        KeyframeExtract[Extract keyframes]:::process
+        SaveOriginal[Save original frames]:::process
+        R2Original[(R2: frames/original)]:::storage
 
-    YOLOSeg --> PersistViz[Persist visualization frames]:::process
-    YOLODet --> PersistViz
-    MTCNN --> PersistViz
-    PersistViz --> R2Seg[(R2: frames/seg)]:::storage
-    PersistViz --> R2Det[(R2: frames/det)]:::storage
-    PersistViz --> R2Face[(R2: frames/face)]:::storage
+        SceneDetect --> KeyframeExtract
+        KeyframeExtract --> SaveOriginal
+        SaveOriginal --> R2Original
+    end
 
-    AnalyzeFrame --> PersistFrameArtifacts[Persist frame artifacts]:::process
-    ObjTrack --> PersistFrameArtifacts
-    FaceTrack --> PersistFrameArtifacts
-    Enrichment --> PersistFrameArtifacts
-    PersistFrameArtifacts --> R2FrameJSON[(R2: analysis/json/frame_N.json)]:::storage
-    PersistFrameArtifacts --> R2FrameTOON[(R2: analysis/toon/frame_N.toon)]:::storage
-    PersistFrameArtifacts --> FrameResults[frame_results[]]:::output
+    VerifySource -->|yes| SceneDetect
 
-    %% Stage 4: Optional scene understanding pipeline
-    SceneDetect --> SceneGate{ENABLE_SCENE_UNDERSTANDING_PIPELINE}:::decision
+    %% ── Stage 3: Per-frame CV Analysis ──
+    subgraph S3[" 3 · Per-frame CV Analysis "]
+        AnalyzeFrame[analyze_frame · per keyframe]:::process
+
+        YOLOSeg[YOLO segmentation]:::process
+        YOLODet[YOLO detection]:::process
+        MTCNN[MTCNN face detect]:::process
+
+        ObjTrack[Object tracker]:::process
+        FaceTrack[Face tracker]:::process
+        Enrichment["Optional enrichers<br/>OCR · pose · action · camera · quality"]:::process
+
+        PersistViz[Persist viz frames]:::process
+        R2Seg[(R2: frames/seg)]:::storage
+        R2Det[(R2: frames/det)]:::storage
+        R2Face[(R2: frames/face)]:::storage
+
+        PersistArtifacts[Persist frame artifacts]:::process
+        R2FrameJSON[(R2: frame_N.json)]:::storage
+        FrameResults[frame_results array]:::output
+
+        AnalyzeFrame --> YOLOSeg
+        AnalyzeFrame --> YOLODet
+        AnalyzeFrame --> MTCNN
+        AnalyzeFrame -. optional .-> Enrichment
+        YOLODet --> ObjTrack
+        MTCNN --> FaceTrack
+
+        YOLOSeg --> PersistViz
+        YOLODet --> PersistViz
+        MTCNN --> PersistViz
+        PersistViz --> R2Seg
+        PersistViz --> R2Det
+        PersistViz --> R2Face
+
+        AnalyzeFrame --> PersistArtifacts
+        ObjTrack --> PersistArtifacts
+        FaceTrack --> PersistArtifacts
+        Enrichment --> PersistArtifacts
+        PersistArtifacts --> R2FrameJSON
+        PersistArtifacts --> FrameResults
+    end
+
+    KeyframeExtract --> AnalyzeFrame
+
+    %% ── Stage 4: Scene Understanding (optional) ──
+    subgraph S4[" 4 · Scene Understanding · optional "]
+        SceneGate{ENABLE_SCENE_UNDERSTANDING}:::decision
+        BuildScenePackets["Build scene packets (JSON)"]:::process
+        R2ScenePackets[(R2: scene packets)]:::storage
+        SceneNarrativeLLM[LLM: scene narrative]:::llm
+        GenerateNarratives[Generate narratives]:::process
+        R2SceneNarratives[(R2: scene narratives)]:::storage
+        SynopsisLLM[LLM: refine synopsis]:::llm
+        BuildSynopsis[Refine video synopsis]:::process
+        R2Synopsis[(R2: synopsis)]:::storage
+        SceneOutputs[scene_narratives + synopsis]:::output
+
+        SceneGate -->|enabled| BuildScenePackets
+        BuildScenePackets --> R2ScenePackets
+        BuildScenePackets --> SceneNarrativeLLM
+        SceneNarrativeLLM --> GenerateNarratives
+        GenerateNarratives --> R2SceneNarratives
+        GenerateNarratives --> SynopsisLLM
+        SynopsisLLM --> BuildSynopsis
+        BuildSynopsis --> R2Synopsis
+        BuildSynopsis --> SceneOutputs
+        SceneGate -->|disabled| SceneOutputs
+    end
+
+    SceneDetect --> SceneGate
     FrameResults --> SceneGate
-    SceneGate -->|true| BuildScenePackets[Build scene packets (TOON)]:::process
-    BuildScenePackets --> R2ScenePackets[(R2: scene/packets/scene_N.toon)]:::storage
-    BuildScenePackets --> GenerateNarratives[Generate scene narratives]:::process
-    GenerateNarratives --> R2SceneNarratives[(R2: scene/narratives/scene_N.json)]:::storage
-    GenerateNarratives --> BuildSynopsis[Refine video synopsis]:::process
-    BuildSynopsis --> R2Synopsis[(R2: summary/synopsis.json)]:::storage
-    BuildSynopsis --> SceneOutputs[scene_narratives + video_synopsis]:::output
-    SceneGate -->|false| SceneOutputs
 
-    %% Stage 5: Optional corpus build + ingest
-    FrameResults --> CorpusGate{ENABLE_CORPUS_PIPELINE}:::decision
+    %% ── Stage 5: Corpus Build & Ingest (optional) ──
+    subgraph S5[" 5 · Corpus Build & Ingest · optional "]
+        CorpusGate{ENABLE_CORPUS}:::decision
+        BuildCorpus["Build corpus<br/>graph · retrieval · embeddings"]:::process
+        R2Graph[(R2: graph)]:::storage
+        R2Retrieval[(R2: RAG)]:::storage
+        R2Embeddings[(R2: embeddings)]:::storage
+        IngestGate{ENABLE_INGEST}:::decision
+        IngestCorpus[Ingest corpus]:::process
+        Neo4j[(Neo4j)]:::storage
+        Pgvector[(pgvector)]:::storage
+
+        CorpusGate -->|enabled| BuildCorpus
+        BuildCorpus --> R2Graph
+        BuildCorpus --> R2Retrieval
+        BuildCorpus --> R2Embeddings
+        BuildCorpus --> IngestGate
+        IngestGate -->|enabled| IngestCorpus
+        IngestCorpus --> Neo4j
+        IngestCorpus --> Pgvector
+    end
+
+    FrameResults --> CorpusGate
     SceneOutputs --> CorpusGate
-    CorpusGate -->|true| BuildCorpus[corpus.build:\ngraph + retrieval + embeddings]:::process
-    BuildCorpus --> R2Graph[(R2: corpus/graph/bundle.json)]:::storage
-    BuildCorpus --> R2Retrieval[(R2: corpus/rag/bundle.json)]:::storage
-    BuildCorpus --> R2Embeddings[(R2: corpus/embeddings/bundle.json)]:::storage
-    BuildCorpus --> IngestGate{ENABLE_CORPUS_INGEST}:::decision
-    IngestGate -->|true| IngestCorpus[corpus_ingest.ingest_corpus]:::process
-    IngestCorpus --> Neo4j[(Neo4j)]:::storage
-    IngestCorpus --> Pgvector[(pgvector)]:::storage
 
-    %% Stage 6: Completion + result serving
-    FrameResults --> AssemblePayload[Assemble job payload]:::process
+    %% ── Stage 6: Completion & Results ──
+    subgraph S6[" 6 · Completion & Results "]
+        AssemblePayload[Assemble job payload]:::process
+        VerifyArtifacts[Verify R2 artifacts]:::process
+        CompleteJob[complete_job]:::output
+        ResultsEndpoint["GET /results/{job_id}"]:::api
+        SignedResult[[Signed URLs + payload]]:::output
+        FinalizeSource[Finalize local source]:::process
+
+        AssemblePayload --> VerifyArtifacts
+        VerifyArtifacts --> CompleteJob
+        CompleteJob --> ResultsEndpoint
+        ResultsEndpoint --> SignedResult
+        CompleteJob --> FinalizeSource
+    end
+
+    FrameResults --> AssemblePayload
     SceneOutputs --> AssemblePayload
     BuildCorpus --> AssemblePayload
-    CorpusGate -->|false| AssemblePayload
-    IngestGate -->|false| AssemblePayload
-    AssemblePayload --> VerifyArtifacts[Verify required R2 artifacts]:::process
-    VerifyArtifacts --> CompleteJob[jobs.complete_job]:::output
-    CompleteJob --> ResultsEndpoint[GET /results/{job_id}]:::api
-    ResultsEndpoint --> SignedResult[[Signed URLs + result payload]]:::output
-    CompleteJob --> FinalizeSource[Finalize local source\n(delete or retain)]:::process
-    VerifySource -->|no (fail job)| FinalizeSource
+    CorpusGate -->|disabled| AssemblePayload
+    IngestGate -->|disabled| AssemblePayload
+    VerifySource -->|fail| FinalizeSource
 ```

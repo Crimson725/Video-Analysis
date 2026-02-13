@@ -43,7 +43,7 @@ class TestProcessVideoStorageFailures:
     @patch("app.main.scene.extract_keyframes", return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}])
     @patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)])
     @patch("app.main.scene.save_original_frames")
-    @patch("app.main.analysis.analyze_frame", side_effect=RuntimeError("TOON conversion failed"))
+    @patch("app.main.analysis.analyze_frame", side_effect=RuntimeError("analysis artifact persistence failed"))
     @patch("app.main.ModelLoader")
     @patch("app.main.get_media_store")
     def test_analysis_artifact_failure_marks_job_failed(
@@ -67,7 +67,7 @@ class TestProcessVideoStorageFailures:
         job = jobs.get_job(job_id)
         assert job is not None
         assert job["status"] == "failed"
-        assert "TOON conversion failed" in job["error"]
+        assert "analysis artifact persistence failed" in job["error"]
 
     @patch("app.main.scene.extract_keyframes", return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}])
     @patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)])
@@ -90,7 +90,6 @@ class TestProcessVideoStorageFailures:
             },
             "analysis_artifacts": {
                 "json": "jobs/job-x/analysis/json/frame_0.json",
-                "toon": "jobs/job-x/analysis/toon/frame_0.toon",
             },
             "metadata": {
                 "provenance": {

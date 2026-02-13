@@ -97,7 +97,7 @@ def test_process_video_output_content_contract_for_canonical_video(
             len(moment.strip()) >= min_key_moment_chars for moment in scene_narrative.key_moments
         )
         assert scene_narrative.artifacts.packet == (
-            f"jobs/{job_id}/scene/packets/scene_{scene_narrative.scene_id}.toon"
+            f"jobs/{job_id}/scene/packets/scene_{scene_narrative.scene_id}.json"
         )
         assert scene_narrative.artifacts.narrative == (
             f"jobs/{job_id}/scene/narratives/scene_{scene_narrative.scene_id}.json"
