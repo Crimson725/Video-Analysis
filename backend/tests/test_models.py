@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.models import select_torch_device, tensorflow_runtime_note
+from app.models import edgeface_runtime_note, select_torch_device
 
 
 def test_select_torch_device_prefers_cuda_when_available(monkeypatch):
@@ -52,9 +52,11 @@ def test_select_torch_device_honors_explicit_cuda_and_fallback(monkeypatch):
     assert select_torch_device("cuda").type == "cuda"
 
 
-def test_tensorflow_runtime_note_does_not_require_tensorflow():
+def test_edgeface_runtime_note_does_not_require_tensorflow():
     with patch("app.models.importlib.util.find_spec", return_value=None):
-        assert "not installed" in tensorflow_runtime_note().lower()
+        message = edgeface_runtime_note().lower()
+        assert "not installed" in message
+        assert "edgeface" in message
 
     with patch("app.models.importlib.util.find_spec", return_value=object()):
-        assert "not required" in tensorflow_runtime_note().lower()
+        assert "not required" in edgeface_runtime_note().lower()

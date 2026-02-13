@@ -31,11 +31,11 @@ def select_torch_device(preferred_backend: str = "auto") -> torch.device:
     return torch.device("cpu")
 
 
-def tensorflow_runtime_note() -> str:
-    """Return runtime note documenting TensorFlow is not required."""
+def edgeface_runtime_note() -> str:
+    """Return runtime note documenting EdgeFace uses a TensorFlow-free path."""
     if importlib.util.find_spec("tensorflow") is None:
-        return "TensorFlow is not installed; face identity runtime uses PyTorch only."
-    return "TensorFlow is installed but not required; face identity runtime uses PyTorch only."
+        return "TensorFlow is not installed; EdgeFace identity runtime uses PyTorch only."
+    return "TensorFlow is installed but not required; EdgeFace identity runtime uses PyTorch only."
 
 
 class ModelLoader:
@@ -53,6 +53,11 @@ class ModelLoader:
         preferred_backend = os.getenv("FACE_IDENTITY_BACKEND", "auto")
         device = select_torch_device(preferred_backend)
         self.device = device
+        logger.info(
+            "EdgeFace device selection backend=%s resolved_device=%s",
+            preferred_backend,
+            device.type,
+        )
         if device.type == "cuda":
             logger.info("PyTorch using CUDA GPU acceleration")
         elif device.type == "mps":

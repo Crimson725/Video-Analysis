@@ -250,17 +250,17 @@ class Settings:
             ),
             face_identity_scene_similarity_threshold=_read_float(
                 "FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD",
-                default=0.7,
+                default=0.66,
                 minimum=0.0,
             ),
             face_identity_video_similarity_threshold=_read_float(
                 "FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD",
-                default=0.75,
+                default=0.71,
                 minimum=0.0,
             ),
             face_identity_ambiguity_margin=_read_float(
                 "FACE_IDENTITY_AMBIGUITY_MARGIN",
-                default=0.03,
+                default=0.04,
                 minimum=0.0,
             ),
             face_identity_embedding_dimension=_read_int(
@@ -269,8 +269,8 @@ class Settings:
                 minimum=16,
             ),
             face_identity_model_id=(
-                os.getenv("FACE_IDENTITY_MODEL_ID", "insightface-arcface-pytorch").strip()
-                or "insightface-arcface-pytorch"
+                os.getenv("FACE_IDENTITY_MODEL_ID", "edgeface-arcface-torch").strip()
+                or "edgeface-arcface-torch"
             ),
             face_identity_weights_path=os.getenv("FACE_IDENTITY_WEIGHTS_PATH", "").strip(),
         )

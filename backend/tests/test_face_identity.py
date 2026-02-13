@@ -114,3 +114,30 @@ def test_video_identity_stitching_splits_distinct_people():
     right = scene_to_video["scene_1_person_1"]["video_person_id"]
     assert left != right
     assert len(summary) == 2
+
+
+def test_identity_continuity_survives_occlusion_and_scene_cut():
+    observations = [
+        _obs(scene_id=0, frame_id=1, face_id=1, embedding=_norm([1.0, 0.0, 0.0])),
+        _obs(scene_id=0, frame_id=2, face_id=2, embedding=_norm([0.0, 1.0, 0.0])),
+        _obs(scene_id=0, frame_id=40, face_id=1, embedding=_norm([0.97, 0.03, 0.0])),
+        _obs(scene_id=1, frame_id=1, face_id=1, embedding=_norm([0.96, 0.04, 0.0])),
+    ]
+
+    assignments, clusters = aggregate_scene_identities(
+        observations,
+        similarity_threshold=0.72,
+        ambiguity_margin=0.04,
+    )
+    scene_to_video, _ = stitch_video_identities(
+        clusters,
+        similarity_threshold=0.78,
+        ambiguity_margin=0.04,
+    )
+
+    first_scene_identity = assignments[(0, 1, 1)]["scene_person_id"]
+    reappeared_scene_identity = assignments[(0, 40, 1)]["scene_person_id"]
+    assert first_scene_identity == reappeared_scene_identity
+    first_video_identity = scene_to_video["scene_0_person_1"]["video_person_id"]
+    cut_video_identity = scene_to_video["scene_1_person_1"]["video_person_id"]
+    assert first_video_identity == cut_video_identity

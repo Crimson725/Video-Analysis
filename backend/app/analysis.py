@@ -12,8 +12,8 @@ from PIL import Image
 from pydantic import ValidationError
 
 from app.face_identity import (
+    EdgeFaceTorchEmbedder,
     FaceObservation,
-    InsightFaceTorchEmbedder,
     aggregate_scene_identities,
     stitch_video_identities,
 )
@@ -847,7 +847,7 @@ def _extract_face_observations_from_keyframes(
     *,
     keyframes: list[dict[str, Any]],
     frame_results: list[dict[str, Any]],
-    embedder: InsightFaceTorchEmbedder,
+    embedder: EdgeFaceTorchEmbedder,
 ) -> list[FaceObservation]:
     """Convert analyzed keyframe face results into embedding observations."""
     keyframe_by_id = {int(frame.get("frame_id", -1)): frame for frame in keyframes}
@@ -892,7 +892,7 @@ def _extract_face_observations_from_tracking_frames(
     tracking_frames: list[dict[str, Any]],
     models: Any,
     job_id: str,
-    embedder: InsightFaceTorchEmbedder,
+    embedder: EdgeFaceTorchEmbedder,
 ) -> list[FaceObservation]:
     """Detect faces for sampled tracking frames and convert into observations."""
     observations: list[FaceObservation] = []
@@ -982,7 +982,7 @@ def run_face_identity_pipeline(
 ) -> dict[str, Any]:
     """Run scene-local and video-global face identity aggregation."""
     device = select_torch_device(settings.face_identity_backend)
-    embedder = InsightFaceTorchEmbedder(
+    embedder = EdgeFaceTorchEmbedder(
         device=device,
         model_id=settings.face_identity_model_id,
         embedding_dimension=settings.face_identity_embedding_dimension,

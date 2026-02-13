@@ -77,8 +77,8 @@ class TestSettings:
         monkeypatch.setenv("FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD", "0.84")
         monkeypatch.setenv("FACE_IDENTITY_AMBIGUITY_MARGIN", "0.02")
         monkeypatch.setenv("FACE_IDENTITY_EMBEDDING_DIMENSION", "256")
-        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "insightface-arcface-pytorch")
-        monkeypatch.setenv("FACE_IDENTITY_WEIGHTS_PATH", "/tmp/arcface.pt")
+        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "edgeface-arcface-torch")
+        monkeypatch.setenv("FACE_IDENTITY_WEIGHTS_PATH", "/tmp/edgeface.pt")
 
         settings = Settings.from_env(autoload_dotenv=False)
 
@@ -90,8 +90,21 @@ class TestSettings:
         assert settings.face_identity_video_similarity_threshold == 0.84
         assert settings.face_identity_ambiguity_margin == 0.02
         assert settings.face_identity_embedding_dimension == 256
-        assert settings.face_identity_model_id == "insightface-arcface-pytorch"
-        assert settings.face_identity_weights_path == "/tmp/arcface.pt"
+        assert settings.face_identity_model_id == "edgeface-arcface-torch"
+        assert settings.face_identity_weights_path == "/tmp/edgeface.pt"
+
+    def test_face_identity_defaults_use_edgeface_profile(self, monkeypatch):
+        monkeypatch.delenv("FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD", raising=False)
+        monkeypatch.delenv("FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD", raising=False)
+        monkeypatch.delenv("FACE_IDENTITY_AMBIGUITY_MARGIN", raising=False)
+        monkeypatch.delenv("FACE_IDENTITY_MODEL_ID", raising=False)
+
+        settings = Settings.from_env(autoload_dotenv=False)
+
+        assert settings.face_identity_scene_similarity_threshold == 0.66
+        assert settings.face_identity_video_similarity_threshold == 0.71
+        assert settings.face_identity_ambiguity_margin == 0.04
+        assert settings.face_identity_model_id == "edgeface-arcface-torch"
 
     def test_missing_llm_fields_only_when_pipeline_enabled(self, monkeypatch):
         monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")

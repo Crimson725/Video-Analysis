@@ -17,7 +17,7 @@ from app import analysis, cleanup, corpus, corpus_ingest, jobs, scene, video_und
 from app.scene_ai_worker_contracts import SceneWorkerTaskInput
 from app.scene_task_queue import PostgresSceneTaskQueue, build_postgres_scene_task_queue
 from app.config import Settings
-from app.models import ModelLoader, tensorflow_runtime_note
+from app.models import ModelLoader, edgeface_runtime_note
 from app.schemas import JobResult, JobStatus
 from app.storage import MediaStore, MediaStoreConfigError, MediaStoreError, R2MediaStore
 
@@ -93,7 +93,7 @@ def _startup_validate_settings() -> None:
                 "Continuous identity tracking may fail at runtime.",
                 ", ".join(missing_face_identity),
             )
-        logger.info("%s", tensorflow_runtime_note())
+        logger.info("%s", edgeface_runtime_note())
     if SETTINGS.enable_corpus_ingest and not SETTINGS.enable_corpus_pipeline:
         logger.warning(
             "Corpus ingest is enabled while corpus build is disabled. "

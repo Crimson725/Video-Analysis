@@ -235,12 +235,39 @@ Tuning knobs:
 
 ## Dependencies
 
-The ML stack is **PyTorch-only** — no TensorFlow or ONNX Runtime:
+The ML stack is **PyTorch-first** for in-repo pipeline execution and does not require TensorFlow:
 
 - **ultralytics** (YOLO) — object detection and instance segmentation
 - **facenet-pytorch** (MTCNN) — face detection
 - **scenedetect** — video scene boundary detection
 - **opencv-python** — frame I/O and drawing
+
+## EdgeFace rollout and rollback
+
+Continuous face identity is feature-gated and runs on a PyTorch-only EdgeFace path.
+
+Enable EdgeFace identity mode:
+
+```bash
+ENABLE_FACE_IDENTITY_PIPELINE=true
+FACE_IDENTITY_MODEL_ID=edgeface-arcface-torch
+FACE_IDENTITY_BACKEND=auto
+FACE_IDENTITY_WEIGHTS_PATH=/absolute/path/to/edgeface_weights.pt
+```
+
+Optional tuning defaults (already applied when unset):
+
+```bash
+FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD=0.66
+FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD=0.71
+FACE_IDENTITY_AMBIGUITY_MARGIN=0.04
+```
+
+Rollback controls:
+
+- Disable face identity entirely with `ENABLE_FACE_IDENTITY_PIPELINE=false`.
+- Keep identity mode on but swap to alternate weights by updating `FACE_IDENTITY_WEIGHTS_PATH`.
+- Force deterministic backend selection with `FACE_IDENTITY_BACKEND=cuda|mps|cpu`.
 
 ## GPU
 

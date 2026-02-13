@@ -98,14 +98,14 @@ class TestFaceItem:
             video_person_id="video_person_1",
             match_confidence=0.92,
             is_identity_ambiguous=False,
-            embedding_model_id="insightface-arcface-pytorch",
+            embedding_model_id="edgeface-arcface-torch",
         )
 
         assert item.scene_person_id == "scene_0_person_1"
         assert item.video_person_id == "video_person_1"
         assert item.match_confidence == pytest.approx(0.92)
         assert item.is_identity_ambiguous is False
-        assert item.embedding_model_id == "insightface-arcface-pytorch"
+        assert item.embedding_model_id == "edgeface-arcface-torch"
 
 
 class TestJobResult:

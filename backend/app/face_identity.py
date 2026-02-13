@@ -83,8 +83,8 @@ class VideoCluster:
             self.scene_person_ids.append(scene_person_id)
 
 
-class InsightFaceTorchEmbedder:
-    """PyTorch-backed face embedding extractor with deterministic fallback."""
+class EdgeFaceTorchEmbedder:
+    """PyTorch-backed EdgeFace-style embedding extractor with deterministic fallback."""
 
     def __init__(
         self,
@@ -272,4 +272,3 @@ def stitch_video_identities(
         for cluster in sorted(video_clusters, key=lambda item: item.video_person_id)
     ]
     return scene_to_video, video_summary
-
