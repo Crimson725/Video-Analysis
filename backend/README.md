@@ -5,7 +5,6 @@ Python FastAPI backend for video analysis (scene detection, segmentation, object
 ## Setup
 
 This project uses [UV](https://docs.astral.sh/uv/) for dependency management.
-Use Python `3.13.x` for local development and test runs.
 
 ```bash
 cd backend

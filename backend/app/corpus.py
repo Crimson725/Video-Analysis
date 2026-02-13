@@ -181,13 +181,8 @@ def _build_graph_bundle(
             )
 
         for face in analysis.get("face_recognition", []):
-            identity_id = (
-                str(face.get("video_person_id", ""))
-                or str(face.get("scene_person_id", ""))
-                or str(face.get("identity_id", ""))
-                or _deterministic_id(
-                    "identity", job_id, frame.get("frame_id"), face.get("face_id")
-                )
+            identity_id = str(face.get("identity_id", "")) or _deterministic_id(
+                "identity", job_id, frame.get("frame_id"), face.get("face_id")
             )
             node_id = node_index.setdefault(
                 identity_id,

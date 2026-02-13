@@ -50,11 +50,6 @@ class FaceItem(BaseModel):
     identity_id: str
     confidence: float
     coordinates: list[int] = Field(..., min_length=4, max_length=4)
-    scene_person_id: str | None = None
-    video_person_id: str | None = None
-    match_confidence: float | None = None
-    is_identity_ambiguous: bool | None = None
-    embedding_model_id: str | None = None
 
 
 class OCRBlock(BaseModel):
@@ -378,7 +373,6 @@ class JobResult(BaseModel):
     scene_narratives: list[SceneNarrativeResult] = Field(default_factory=list)
     video_synopsis: VideoSynopsisResult | None = None
     corpus: JobCorpusResult | None = None
-    video_face_identities: dict[str, Any] | None = None
 
 
 class JobStatus(BaseModel):

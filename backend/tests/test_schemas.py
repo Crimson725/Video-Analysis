@@ -88,25 +88,6 @@ class TestFaceItem:
                 coordinates=[10, 20, 30, 40],
             )
 
-    def test_accepts_identity_metadata_fields(self):
-        item = FaceItem(
-            face_id=1,
-            identity_id="face_1",
-            confidence=0.99,
-            coordinates=[10, 20, 30, 40],
-            scene_person_id="scene_0_person_1",
-            video_person_id="video_person_1",
-            match_confidence=0.92,
-            is_identity_ambiguous=False,
-            embedding_model_id="insightface-arcface-pytorch",
-        )
-
-        assert item.scene_person_id == "scene_0_person_1"
-        assert item.video_person_id == "video_person_1"
-        assert item.match_confidence == pytest.approx(0.92)
-        assert item.is_identity_ambiguous is False
-        assert item.embedding_model_id == "insightface-arcface-pytorch"
-
 
 class TestJobResult:
     def test_valid_construction(self):
@@ -155,25 +136,6 @@ class TestJobResult:
         )
         assert result.scene_narratives == []
         assert result.video_synopsis is None
-        assert result.video_face_identities is None
-
-    def test_job_result_accepts_video_face_identity_summary(self):
-        result = JobResult(
-            job_id="abc-123",
-            frames=[],
-            video_face_identities={
-                "video_identities": [
-                    {
-                        "video_person_id": "video_person_1",
-                        "scene_person_ids": ["scene_0_person_1"],
-                        "cluster_size": 3,
-                    }
-                ]
-            },
-        )
-
-        assert result.video_face_identities is not None
-        assert result.video_face_identities["video_identities"][0]["video_person_id"] == "video_person_1"
 
     def test_scene_narrative_requires_key_moments(self):
         with pytest.raises(ValidationError):

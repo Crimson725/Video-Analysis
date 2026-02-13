@@ -255,23 +255,3 @@ def test_build_fails_when_gemini_key_missing():
             scene_outputs=_scene_outputs(),
             settings=_settings(google_api_key=""),
         )
-
-
-def test_face_nodes_prefer_video_identity_metadata_when_present():
-    frame = _frame(0, "00:00:01.000")
-    face = frame["analysis"]["face_recognition"][0]
-    face["identity_id"] = "face_legacy"
-    face["scene_person_id"] = "scene_0_person_1"
-    face["video_person_id"] = "video_person_42"
-
-    payload = corpus.build(
-        job_id="job-1",
-        scenes=[(0.0, 4.0)],
-        frame_results=[frame],
-        scene_outputs=_scene_outputs(),
-        settings=_settings(),
-        embedding_client=_StubEmbeddingClient(),
-    )
-
-    person_labels = [node["label"] for node in payload["graph"]["nodes"] if node["node_type"] == "person"]
-    assert "video_person_42" in person_labels

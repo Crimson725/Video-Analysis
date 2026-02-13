@@ -195,17 +195,12 @@ def collect_corpus_entities(
             frame_entity_ids.setdefault(frame_id, []).append(entity_id)
 
         for face in analysis.get("face_recognition", []):
-            identity_id = (
-                str(face.get("video_person_id", ""))
-                or str(face.get("scene_person_id", ""))
-                or str(face.get("identity_id", ""))
-                or deterministic_id(
-                    "identity",
-                    job_id,
-                    scene_id,
-                    frame_id,
-                    face.get("face_id"),
-                )
+            identity_id = str(face.get("identity_id", "")) or deterministic_id(
+                "identity",
+                job_id,
+                scene_id,
+                frame_id,
+                face.get("face_id"),
             )
             key = ("person", identity_id)
             entity_id = deterministic_id("entity", job_id, scene_id, key[0], key[1], "person")

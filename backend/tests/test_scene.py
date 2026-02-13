@@ -4,12 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from app.scene import (
-    detect_scenes,
-    extract_keyframes,
-    extract_tracking_frames,
-    save_original_frames,
-)
+from app.scene import detect_scenes, extract_keyframes, save_original_frames
 
 
 class TestDetectScenes:
@@ -131,58 +126,3 @@ class TestSaveOriginalFrames:
         assert any("frame_0.jpg" in p for p in paths)
         assert any("frame_1.jpg" in p for p in paths)
         assert all("original" in p for p in paths)
-
-
-class TestExtractTrackingFrames:
-    @patch("app.scene.cv2")
-    def test_extracts_deterministic_tracking_frames(self, mock_cv2):
-        fake_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-
-        mock_cap = MagicMock()
-        mock_cap.get.return_value = 10.0
-        mock_cap.read.return_value = (True, fake_frame)
-        mock_cv2.VideoCapture.return_value = mock_cap
-        mock_cv2.CAP_PROP_FPS = 5
-        mock_cv2.CAP_PROP_POS_FRAMES = 1
-
-        scenes = [(0.0, 1.0), (2.0, 3.0)]
-        result = extract_tracking_frames(
-            "fake_video.mp4",
-            scenes,
-            sample_fps=2,
-            max_samples_per_scene=3,
-        )
-
-        assert len(result) == 6
-        assert result[0]["frame_id"] == 0
-        assert result[1]["frame_id"] == 1
-        assert result[2]["frame_id"] == 2
-        assert result[3]["frame_id"] == 1_000_000
-        assert result[0]["timestamp"] == "00:00:00.000"
-        assert result[1]["timestamp"] == "00:00:00.500"
-        assert result[2]["timestamp"] == "00:00:01.000"
-        assert result[3]["timestamp"] == "00:00:02.000"
-        assert all(frame["is_tracking_frame"] is True for frame in result)
-        assert [frame["source_frame_index"] for frame in result[:4]] == [0, 5, 10, 20]
-        mock_cap.release.assert_called_once()
-
-    @patch("app.scene.cv2")
-    def test_extract_tracking_frames_respects_max_samples(self, mock_cv2):
-        fake_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-
-        mock_cap = MagicMock()
-        mock_cap.get.return_value = 25.0
-        mock_cap.read.return_value = (True, fake_frame)
-        mock_cv2.VideoCapture.return_value = mock_cap
-        mock_cv2.CAP_PROP_FPS = 5
-        mock_cv2.CAP_PROP_POS_FRAMES = 1
-
-        result = extract_tracking_frames(
-            "fake_video.mp4",
-            [(0.0, 10.0)],
-            sample_fps=5,
-            max_samples_per_scene=4,
-        )
-
-        assert len(result) == 4
-        assert [frame["sample_index"] for frame in result] == [0, 1, 2, 3]
