@@ -68,6 +68,31 @@ class TestSettings:
         assert settings.graph_backend == "memory"
         assert settings.vector_backend == "memory"
 
+    def test_face_identity_settings_parse(self, monkeypatch):
+        monkeypatch.setenv("ENABLE_FACE_IDENTITY_PIPELINE", "true")
+        monkeypatch.setenv("FACE_IDENTITY_BACKEND", "mps")
+        monkeypatch.setenv("FACE_IDENTITY_SAMPLE_FPS", "6")
+        monkeypatch.setenv("FACE_IDENTITY_MAX_SAMPLES_PER_SCENE", "42")
+        monkeypatch.setenv("FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD", "0.81")
+        monkeypatch.setenv("FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD", "0.84")
+        monkeypatch.setenv("FACE_IDENTITY_AMBIGUITY_MARGIN", "0.02")
+        monkeypatch.setenv("FACE_IDENTITY_EMBEDDING_DIMENSION", "256")
+        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "insightface-arcface-pytorch")
+        monkeypatch.setenv("FACE_IDENTITY_WEIGHTS_PATH", "/tmp/arcface.pt")
+
+        settings = Settings.from_env(autoload_dotenv=False)
+
+        assert settings.enable_face_identity_pipeline is True
+        assert settings.face_identity_backend == "mps"
+        assert settings.face_identity_sample_fps == 6
+        assert settings.face_identity_max_samples_per_scene == 42
+        assert settings.face_identity_scene_similarity_threshold == 0.81
+        assert settings.face_identity_video_similarity_threshold == 0.84
+        assert settings.face_identity_ambiguity_margin == 0.02
+        assert settings.face_identity_embedding_dimension == 256
+        assert settings.face_identity_model_id == "insightface-arcface-pytorch"
+        assert settings.face_identity_weights_path == "/tmp/arcface.pt"
+
     def test_missing_llm_fields_only_when_pipeline_enabled(self, monkeypatch):
         monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
@@ -87,6 +112,16 @@ class TestSettings:
         monkeypatch.setenv("GOOGLE_API_KEY", "key")
         settings = Settings.from_env(autoload_dotenv=False)
         assert settings.missing_embedding_fields() == []
+
+    def test_missing_face_identity_fields_only_when_enabled(self, monkeypatch):
+        monkeypatch.delenv("ENABLE_FACE_IDENTITY_PIPELINE", raising=False)
+        settings = Settings.from_env(autoload_dotenv=False)
+        assert settings.missing_face_identity_fields() == []
+
+        monkeypatch.setenv("ENABLE_FACE_IDENTITY_PIPELINE", "true")
+        settings = Settings.from_env(autoload_dotenv=False)
+        object.__setattr__(settings, "face_identity_model_id", "")
+        assert settings.missing_face_identity_fields() == ["FACE_IDENTITY_MODEL_ID"]
 
     def test_autoloads_google_api_key_from_dotenv_local(self, monkeypatch, tmp_path: Path):
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)

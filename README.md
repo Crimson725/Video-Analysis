@@ -12,7 +12,7 @@ It processes scenes and keyframes, runs computer vision analysis, and returns jo
 
 ## Prerequisites
 
-- Python `3.10+`
+- Python `3.13.x`
 - [uv](https://docs.astral.sh/uv/) for dependency management and running commands
 - Podman (optional, needed for local corpus/graph/vector integration workflows)
 

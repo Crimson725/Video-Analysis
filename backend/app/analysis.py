@@ -11,6 +11,13 @@ import numpy as np
 from PIL import Image
 from pydantic import ValidationError
 
+from app.face_identity import (
+    FaceObservation,
+    InsightFaceTorchEmbedder,
+    aggregate_scene_identities,
+    stitch_video_identities,
+)
+from app.models import select_torch_device
 from app.schemas import FrameResult
 from app.storage import (
     FrameKind,
@@ -20,6 +27,7 @@ from app.storage import (
 )
 
 if TYPE_CHECKING:
+    from app.config import Settings
     from app.storage import MediaStore
 
 logger = logging.getLogger(__name__)
@@ -833,3 +841,206 @@ def analyze_frame(
         _persist_analysis_artifacts(media_store, frame_payload, job_id, frame_id)
 
     return frame_payload
+
+
+def _extract_face_observations_from_keyframes(
+    *,
+    keyframes: list[dict[str, Any]],
+    frame_results: list[dict[str, Any]],
+    embedder: InsightFaceTorchEmbedder,
+) -> list[FaceObservation]:
+    """Convert analyzed keyframe face results into embedding observations."""
+    keyframe_by_id = {int(frame.get("frame_id", -1)): frame for frame in keyframes}
+    observations: list[FaceObservation] = []
+    for frame in frame_results:
+        frame_id = int(frame.get("frame_id", -1))
+        keyframe = keyframe_by_id.get(frame_id)
+        if keyframe is None:
+            continue
+        scene_id = int(keyframe.get("scene_id", frame_id))
+        image = keyframe.get("image")
+        if not isinstance(image, np.ndarray):
+            continue
+        faces = frame.get("analysis", {}).get("face_recognition", [])
+        if not isinstance(faces, list):
+            continue
+        for face in faces:
+            if not isinstance(face, dict):
+                continue
+            coords = face.get("coordinates")
+            if not isinstance(coords, list) or len(coords) != 4:
+                continue
+            face_id = int(face.get("face_id", 0))
+            embedding = embedder.embed(image, [int(value) for value in coords])
+            observations.append(
+                FaceObservation(
+                    scene_id=scene_id,
+                    frame_id=frame_id,
+                    timestamp=str(frame.get("timestamp", "")),
+                    face_id=face_id,
+                    coordinates=[int(value) for value in coords],
+                    confidence=float(face.get("confidence", 0.0)),
+                    embedding=embedding,
+                    source="keyframe",
+                )
+            )
+    return observations
+
+
+def _extract_face_observations_from_tracking_frames(
+    *,
+    tracking_frames: list[dict[str, Any]],
+    models: Any,
+    job_id: str,
+    embedder: InsightFaceTorchEmbedder,
+) -> list[FaceObservation]:
+    """Detect faces for sampled tracking frames and convert into observations."""
+    observations: list[FaceObservation] = []
+    for frame in tracking_frames:
+        image = frame.get("image")
+        if not isinstance(image, np.ndarray):
+            continue
+        frame_id = int(frame.get("frame_id", -1))
+        scene_id = int(frame.get("scene_id", 0))
+        face_items = run_face_recognition(
+            image=image,
+            face_detector=models.face_detector,
+            job_id=job_id,
+            frame_id=frame_id,
+            local_dir=None,
+            media_store=None,
+            face_tracker=None,
+        )
+        for item in face_items:
+            coords = item.get("coordinates")
+            if not isinstance(coords, list) or len(coords) != 4:
+                continue
+            embedding = embedder.embed(image, [int(value) for value in coords])
+            observations.append(
+                FaceObservation(
+                    scene_id=scene_id,
+                    frame_id=frame_id,
+                    timestamp=str(frame.get("timestamp", "")),
+                    face_id=int(item.get("face_id", 0)),
+                    coordinates=[int(value) for value in coords],
+                    confidence=float(item.get("confidence", 0.0)),
+                    embedding=embedding,
+                    source="tracking",
+                )
+            )
+    return observations
+
+
+def _apply_identity_metadata_to_keyframes(
+    *,
+    keyframes: list[dict[str, Any]],
+    frame_results: list[dict[str, Any]],
+    assignments: dict[tuple[int, int, int], dict[str, Any]],
+    scene_to_video: dict[str, dict[str, Any]],
+    model_id: str,
+) -> None:
+    """Attach identity metadata to keyframe face outputs in-place."""
+    scene_by_frame_id = {int(frame.get("frame_id", -1)): int(frame.get("scene_id", -1)) for frame in keyframes}
+    for frame in frame_results:
+        frame_id = int(frame.get("frame_id", -1))
+        scene_id = scene_by_frame_id.get(frame_id, frame_id)
+        faces = frame.get("analysis", {}).get("face_recognition", [])
+        if not isinstance(faces, list):
+            continue
+        for face in faces:
+            if not isinstance(face, dict):
+                continue
+            face_id = int(face.get("face_id", 0))
+            assignment = assignments.get((scene_id, frame_id, face_id))
+            if assignment is None:
+                face.setdefault("embedding_model_id", model_id)
+                continue
+            scene_person_id = str(assignment["scene_person_id"])
+            video_assignment = scene_to_video.get(scene_person_id, {})
+            video_person_id = str(video_assignment.get("video_person_id", "")) or None
+            scene_confidence = float(assignment.get("match_confidence", 0.0))
+            video_confidence = float(video_assignment.get("confidence", 0.0))
+            is_ambiguous = bool(assignment.get("is_identity_ambiguous", False)) or bool(
+                video_assignment.get("is_ambiguous", False)
+            )
+            face["scene_person_id"] = scene_person_id
+            face["video_person_id"] = video_person_id
+            face["match_confidence"] = max(scene_confidence, video_confidence)
+            face["is_identity_ambiguous"] = is_ambiguous
+            face["embedding_model_id"] = model_id
+            face["identity_id"] = video_person_id or scene_person_id or str(face.get("identity_id", ""))
+
+
+def run_face_identity_pipeline(
+    *,
+    keyframes: list[dict[str, Any]],
+    frame_results: list[dict[str, Any]],
+    tracking_frames: list[dict[str, Any]],
+    models: Any,
+    settings: "Settings",
+    job_id: str,
+) -> dict[str, Any]:
+    """Run scene-local and video-global face identity aggregation."""
+    device = select_torch_device(settings.face_identity_backend)
+    embedder = InsightFaceTorchEmbedder(
+        device=device,
+        model_id=settings.face_identity_model_id,
+        embedding_dimension=settings.face_identity_embedding_dimension,
+        weights_path=settings.face_identity_weights_path,
+    )
+
+    observations = _extract_face_observations_from_keyframes(
+        keyframes=keyframes,
+        frame_results=frame_results,
+        embedder=embedder,
+    )
+    observations.extend(
+        _extract_face_observations_from_tracking_frames(
+            tracking_frames=tracking_frames,
+            models=models,
+            job_id=job_id,
+            embedder=embedder,
+        )
+    )
+
+    assignments, clusters_by_scene = aggregate_scene_identities(
+        observations,
+        similarity_threshold=settings.face_identity_scene_similarity_threshold,
+        ambiguity_margin=settings.face_identity_ambiguity_margin,
+    )
+    scene_to_video, video_summary = stitch_video_identities(
+        clusters_by_scene,
+        similarity_threshold=settings.face_identity_video_similarity_threshold,
+        ambiguity_margin=settings.face_identity_ambiguity_margin,
+    )
+
+    _apply_identity_metadata_to_keyframes(
+        keyframes=keyframes,
+        frame_results=frame_results,
+        assignments=assignments,
+        scene_to_video=scene_to_video,
+        model_id=settings.face_identity_model_id,
+    )
+
+    scene_summary: list[dict[str, Any]] = []
+    for scene_id in sorted(clusters_by_scene):
+        for cluster in sorted(clusters_by_scene[scene_id], key=lambda item: item.scene_person_id):
+            video_assignment = scene_to_video.get(cluster.scene_person_id, {})
+            scene_summary.append(
+                {
+                    "scene_id": scene_id,
+                    "scene_person_id": cluster.scene_person_id,
+                    "video_person_id": video_assignment.get("video_person_id"),
+                    "confidence": float(video_assignment.get("confidence", 0.0)),
+                    "is_ambiguous": bool(video_assignment.get("is_ambiguous", False)),
+                    "observation_count": int(cluster.count),
+                }
+            )
+
+    return {
+        "enabled": True,
+        "model_id": settings.face_identity_model_id,
+        "backend": device.type,
+        "scene_identities": scene_summary,
+        "video_identities": video_summary,
+    }

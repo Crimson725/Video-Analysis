@@ -112,6 +112,22 @@ def test_materialize_signed_result_urls_defaults_scene_fields_when_missing():
     assert result["corpus"] is None
 
 
+def test_materialize_signed_result_urls_preserves_video_face_identity_summary():
+    payload = {
+        "job_id": "job-11",
+        "frames": [],
+        "video_face_identities": {
+            "video_identities": [
+                {"video_person_id": "video_person_1", "scene_person_ids": ["scene_0_person_1"]}
+            ]
+        },
+    }
+
+    result = _materialize_signed_result_urls(payload, _StubMediaStore())
+
+    assert result["video_face_identities"] == payload["video_face_identities"]
+
+
 def test_materialize_signed_result_urls_ignores_invalid_scene_and_frame_items():
     payload = {
         "job_id": "job-10",

@@ -14,6 +14,7 @@ class SceneWorkerTaskInput:
     scenes: list[tuple[float, float]]
     frame_results: list[dict[str, Any]]
     source_key: str
+    video_face_identities: dict[str, Any] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -21,6 +22,7 @@ class SceneWorkerTaskInput:
             "scenes": [[float(start), float(end)] for start, end in self.scenes],
             "frame_results": self.frame_results,
             "source_key": self.source_key,
+            "video_face_identities": self.video_face_identities,
         }
 
     @classmethod
@@ -47,6 +49,11 @@ class SceneWorkerTaskInput:
             scenes=scenes,
             frame_results=frame_results,
             source_key=str(payload.get("source_key", "")),
+            video_face_identities=(
+                payload.get("video_face_identities")
+                if isinstance(payload.get("video_face_identities"), dict)
+                else None
+            ),
         )
 
     def idempotency_key(self) -> str:
