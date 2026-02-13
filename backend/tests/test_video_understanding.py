@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.scene_packet_builder import build_scene_packets
 from app.storage import build_scene_key, build_summary_key
 from app.video_understanding import GeminiSceneLLMClient, run_scene_understanding_pipeline
 
@@ -244,6 +245,41 @@ def test_trace_metadata_propagates_when_enabled(monkeypatch):
     assert narrative_trace["project"] == "dev-evals"
     assert narrative_trace["stage"] == "scene_narrative"
     assert synopsis_trace["stage"] == "video_synopsis"
+
+
+def test_packet_builder_ignores_runtime_prompt_and_model_policy_changes():
+    base_kwargs = {
+        "job_id": "job-1",
+        "scenes": [(0.0, 4.0)],
+        "frame_results": [_frame(0, "00:00:01.000", ["person", "car"])],
+    }
+    store_v1 = FakeMediaStore()
+    store_v2 = FakeMediaStore()
+
+    packets_v1 = build_scene_packets(
+        **base_kwargs,
+        settings=_settings(
+            scene_model_id="gemini-scene-v1",
+            synopsis_model_id="gemini-synopsis-v1",
+            scene_ai_prompt_version="v1",
+        ),
+        media_store=store_v1,
+    )
+    packets_v2 = build_scene_packets(
+        **base_kwargs,
+        settings=_settings(
+            scene_model_id="gemini-scene-v2",
+            synopsis_model_id="gemini-synopsis-v2",
+            scene_ai_prompt_version="v2",
+        ),
+        media_store=store_v2,
+    )
+
+    assert [packet.toon_payload for packet in packets_v1] == [packet.toon_payload for packet in packets_v2]
+    assert [packet.corpus_entities for packet in packets_v1] == [packet.corpus_entities for packet in packets_v2]
+    assert [packet.corpus_events for packet in packets_v1] == [packet.corpus_events for packet in packets_v2]
+    assert [packet.corpus_relations for packet in packets_v1] == [packet.corpus_relations for packet in packets_v2]
+    assert [packet.retrieval_chunks for packet in packets_v1] == [packet.retrieval_chunks for packet in packets_v2]
 
 
 def test_parse_scene_json_accepts_fenced_block():

@@ -137,6 +137,16 @@ class TestGetStatus:
 
         assert response.status_code == 404
 
+    async def test_queue_stage_still_returns_processing_status(self, client):
+        job_id = jobs.create_job(metadata={"stage": "waiting_scene_ai"})
+
+        response = await client.get(f"/status/{job_id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "processing"
+        assert data["error"] is None
+
 
 # ---------------------------------------------------------------------------
 # 5.5 — GET /results/{job_id}
@@ -232,3 +242,11 @@ class TestGetResults:
         response = await client.get("/results/nonexistent-id")
 
         assert response.status_code == 404
+
+    async def test_queue_stage_results_contract_remains_409_while_processing(self, client):
+        job_id = jobs.create_job(metadata={"stage": "scene_ai_processing"})
+
+        response = await client.get(f"/results/{job_id}")
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Job is still processing"

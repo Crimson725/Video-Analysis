@@ -46,6 +46,20 @@ Process a video through `/analyze-video`; after scene understanding, the backend
 2. Persist artifacts under `jobs/<job_id>/corpus/...`.
 3. Optionally ingest into Neo4j + pgvector when `ENABLE_CORPUS_INGEST=true`.
 
+Queue-mode scene-understanding workflow (API + worker in separate terminals):
+
+```bash
+# Terminal 1
+cd backend
+SCENE_AI_EXECUTION_MODE=queue uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+```bash
+# Terminal 2
+cd backend
+SCENE_AI_EXECUTION_MODE=queue uv run python -m app.worker
+```
+
 ## 4. Quick verification
 
 Neo4j:

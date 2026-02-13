@@ -23,6 +23,12 @@ Or:
 uv run python run.py
 ```
 
+Run the out-of-process scene AI worker (required when `SCENE_AI_EXECUTION_MODE=queue`):
+
+```bash
+uv run python -m app.worker
+```
+
 ## API Endpoints
 
 - `POST /analyze-video` - Upload video, returns `job_id` (HTTP 202)
@@ -36,8 +42,10 @@ uv run python run.py
 
 1. scene detection + keyframe extraction
 2. per-keyframe CV analysis (segmentation, detection, face, enrichment)
-3. scene-understanding generation (`scene_narratives`, `video_synopsis`) when `ENABLE_SCENE_UNDERSTANDING_PIPELINE=true`
-4. corpus/KG/retrieval/embeddings build when `ENABLE_CORPUS_PIPELINE=true`
+3. scene-understanding stage:
+   - `SCENE_AI_EXECUTION_MODE=in_process`: execute scene-understanding in API process
+   - `SCENE_AI_EXECUTION_MODE=queue`: enqueue Postgres task and execute out-of-process in worker
+4. corpus/KG/retrieval/embeddings build when `ENABLE_CORPUS_PIPELINE=true` after scene stage success (or explicit fallback policy)
 
 LLM involvement is constrained to stage 3 (scene understanding). When scene understanding is disabled, results keep a stable shape with:
 
@@ -49,6 +57,17 @@ LLM involvement is constrained to stage 3 (scene understanding). When scene unde
 These flags are enabled by default and can be overridden per environment:
 
 - `ENABLE_SCENE_UNDERSTANDING_PIPELINE` - build scene packets, scene narratives, and video synopsis (`true` default)
+- `SCENE_AI_EXECUTION_MODE` - `in_process` (default) or `queue`
+- `SCENE_AI_QUEUE_DSN` - Postgres DSN for scene task queue (defaults to `PGVECTOR_DSN`)
+- `SCENE_AI_MAX_ATTEMPTS` - max queue attempts before dead-letter (`3` default)
+- `SCENE_AI_RETRY_BACKOFF_SECONDS` - retry backoff base seconds (`5` default)
+- `SCENE_AI_RETRY_BACKOFF_MULTIPLIER` - exponential backoff multiplier (`2` default)
+- `SCENE_AI_RETRY_BACKOFF_MAX_SECONDS` - max retry backoff seconds (`300` default)
+- `SCENE_AI_LEASE_TIMEOUT_SECONDS` - worker claim lease timeout (`120` default)
+- `SCENE_AI_FAILURE_POLICY` - `fail_job` (default) or `fallback_empty`
+- `SCENE_AI_WORKER_POLL_INTERVAL_SECONDS` - worker polling interval (`2` default)
+- `SCENE_AI_PROMPT_VERSION` - worker prompt policy version metadata (`v1` default)
+- `SCENE_AI_RUNTIME_VERSION` - worker runtime policy version metadata (`v1` default)
 - `ENABLE_CORPUS_PIPELINE` - build graph/retrieval/embeddings bundles after scene understanding (`true` default)
 - `ENABLE_CORPUS_INGEST` - ingest bundles into configured graph/vector adapters (`true` default)
 - `GRAPH_BACKEND` - `neo4j` or `memory`
@@ -62,6 +81,22 @@ These flags are enabled by default and can be overridden per environment:
 When using Gemini embeddings (default), `GOOGLE_API_KEY` is required for corpus embedding generation.
 
 Local stack setup guide: `/Users/crimson2049/Video Analysis/backend/docs/local-corpus-stack.md`
+
+## Queue Mode Local Workflow
+
+Run API + worker in separate terminals:
+
+```bash
+# Terminal 1
+cd backend
+SCENE_AI_EXECUTION_MODE=queue uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+```bash
+# Terminal 2
+cd backend
+SCENE_AI_EXECUTION_MODE=queue uv run python -m app.worker
+```
 
 ## Cloudflare R2 Configuration
 

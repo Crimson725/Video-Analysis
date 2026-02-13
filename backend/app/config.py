@@ -31,6 +31,16 @@ def _read_bool(name: str, default: bool) -> bool:
     return default
 
 
+def _read_choice(name: str, default: str, allowed: set[str]) -> str:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    normalized = raw.strip().lower()
+    if normalized in allowed:
+        return normalized
+    return default
+
+
 def _load_dotenv_file(path: Path) -> None:
     """Load KEY=VALUE pairs from a dotenv file without overriding existing env."""
     if not path.is_file():
@@ -68,6 +78,17 @@ class Settings:
     temp_media_dir: str
     cleanup_local_video_after_upload_default: bool
     enable_scene_understanding_pipeline: bool
+    scene_ai_execution_mode: str
+    scene_ai_queue_dsn: str
+    scene_ai_max_attempts: int
+    scene_ai_retry_backoff_seconds: int
+    scene_ai_retry_backoff_multiplier: int
+    scene_ai_retry_backoff_max_seconds: int
+    scene_ai_lease_timeout_seconds: int
+    scene_ai_failure_policy: str
+    scene_ai_worker_poll_interval_seconds: int
+    scene_ai_prompt_version: str
+    scene_ai_runtime_version: str
     google_api_key: str
     scene_model_id: str
     synopsis_model_id: str
@@ -120,6 +141,51 @@ class Settings:
                 "ENABLE_SCENE_UNDERSTANDING_PIPELINE",
                 default=True,
             ),
+            scene_ai_execution_mode=_read_choice(
+                "SCENE_AI_EXECUTION_MODE",
+                default="in_process",
+                allowed={"in_process", "queue"},
+            ),
+            scene_ai_queue_dsn=os.getenv(
+                "SCENE_AI_QUEUE_DSN",
+                os.getenv(
+                    "PGVECTOR_DSN",
+                    "postgresql://video_analysis:video_analysis@127.0.0.1:5433/video_analysis",
+                ),
+            ).strip(),
+            scene_ai_max_attempts=_read_int("SCENE_AI_MAX_ATTEMPTS", default=3, minimum=1),
+            scene_ai_retry_backoff_seconds=_read_int(
+                "SCENE_AI_RETRY_BACKOFF_SECONDS",
+                default=5,
+                minimum=1,
+            ),
+            scene_ai_retry_backoff_multiplier=_read_int(
+                "SCENE_AI_RETRY_BACKOFF_MULTIPLIER",
+                default=2,
+                minimum=1,
+            ),
+            scene_ai_retry_backoff_max_seconds=_read_int(
+                "SCENE_AI_RETRY_BACKOFF_MAX_SECONDS",
+                default=300,
+                minimum=1,
+            ),
+            scene_ai_lease_timeout_seconds=_read_int(
+                "SCENE_AI_LEASE_TIMEOUT_SECONDS",
+                default=120,
+                minimum=1,
+            ),
+            scene_ai_failure_policy=_read_choice(
+                "SCENE_AI_FAILURE_POLICY",
+                default="fail_job",
+                allowed={"fail_job", "fallback_empty"},
+            ),
+            scene_ai_worker_poll_interval_seconds=_read_int(
+                "SCENE_AI_WORKER_POLL_INTERVAL_SECONDS",
+                default=2,
+                minimum=1,
+            ),
+            scene_ai_prompt_version=os.getenv("SCENE_AI_PROMPT_VERSION", "v1").strip() or "v1",
+            scene_ai_runtime_version=os.getenv("SCENE_AI_RUNTIME_VERSION", "v1").strip() or "v1",
             google_api_key=os.getenv("GOOGLE_API_KEY", "").strip(),
             scene_model_id=os.getenv("SCENE_MODEL_ID", "gemini-2.5-flash-lite").strip(),
             synopsis_model_id=os.getenv("SYNOPSIS_MODEL_ID", "gemini-2.5-flash-lite").strip(),

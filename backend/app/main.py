@@ -14,6 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import analysis, cleanup, corpus, corpus_ingest, jobs, scene, video_understanding
+from app.scene_ai_worker_contracts import SceneWorkerTaskInput
+from app.scene_task_queue import PostgresSceneTaskQueue, build_postgres_scene_task_queue
 from app.config import Settings
 from app.models import ModelLoader
 from app.schemas import JobResult, JobStatus
@@ -26,6 +28,7 @@ TEMP_MEDIA_DIR = Path(SETTINGS.temp_media_dir)
 TEMP_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB
 _media_store: MediaStore | None = None
+_scene_task_queue: PostgresSceneTaskQueue | None = None
 
 
 def get_media_store() -> MediaStore:
@@ -40,6 +43,21 @@ def get_media_store() -> MediaStore:
             default_url_ttl_seconds=SETTINGS.r2_url_ttl_seconds,
         )
     return _media_store
+
+
+def get_scene_task_queue() -> PostgresSceneTaskQueue:
+    """Build and cache the Postgres queue client used for scene worker dispatch."""
+    global _scene_task_queue
+    if _scene_task_queue is None:
+        _scene_task_queue = build_postgres_scene_task_queue(dsn=SETTINGS.scene_ai_queue_dsn)
+    return _scene_task_queue
+
+
+def _queue_mode_enabled() -> bool:
+    return (
+        bool(getattr(SETTINGS, "enable_scene_understanding_pipeline", False))
+        and str(getattr(SETTINGS, "scene_ai_execution_mode", "in_process")).strip().lower() == "queue"
+    )
 
 
 def _startup_validate_settings() -> None:
@@ -72,6 +90,21 @@ def _startup_validate_settings() -> None:
             "Corpus ingest is enabled while corpus build is disabled. "
             "Set ENABLE_CORPUS_PIPELINE=true to produce ingestable artifacts."
         )
+    if _queue_mode_enabled():
+        if not SETTINGS.scene_ai_queue_dsn:
+            logger.warning(
+                "Queue mode is enabled but SCENE_AI_QUEUE_DSN is empty. "
+                "Scene AI task dispatch will fail."
+            )
+        else:
+            try:
+                get_scene_task_queue().ensure_schema()
+            except Exception as exc:  # pragma: no cover - startup env dependent
+                logger.warning(
+                    "Queue mode schema initialization failed. "
+                    "Set SCENE_AI_EXECUTION_MODE=in_process to bypass queue path. error=%s",
+                    exc,
+                )
 
 
 def _extract_source_extension(filename: str | None) -> str:
@@ -531,6 +564,7 @@ def process_video(
             logger.error("upload.verify.source_failed job_id=%s key=%s", job_id, source_key)
             raise MediaStoreError(f"Source upload verification failed for key '{source_key}'")
 
+        jobs.set_job_stage(job_id, "cv_processing")
         models = ModelLoader.get()
         scenes = scene.detect_scenes(video_path)
         frames = scene.extract_keyframes(video_path, scenes)
@@ -555,6 +589,47 @@ def process_video(
             )
             frame_results.append(result)
 
+        if _queue_mode_enabled():
+            required_keys = _collect_required_artifact_keys(
+                job_id,
+                {
+                    "job_id": job_id,
+                    "frames": frame_results,
+                    **_default_scene_outputs(),
+                    "corpus": None,
+                },
+                source_key,
+            )
+            _verify_required_artifacts(media_store, job_id, required_keys)
+            task_input = SceneWorkerTaskInput(
+                job_id=job_id,
+                scenes=scenes,
+                frame_results=frame_results,
+                source_key=source_key,
+            )
+            task = get_scene_task_queue().enqueue_task(
+                job_id=job_id,
+                payload=task_input.to_payload(),
+                idempotency_key=task_input.idempotency_key(),
+                max_attempts=SETTINGS.scene_ai_max_attempts,
+            )
+            jobs.set_job_stage(job_id, "waiting_scene_ai")
+            jobs.update_job_metadata(
+                job_id,
+                {
+                    "scene_task_id": task.task_id,
+                    "source_key": source_key,
+                },
+            )
+            logger.info(
+                "scene_ai_queue.enqueued task_id=%s job_id=%s attempts=%s mode=%s",
+                task.task_id,
+                job_id,
+                task.max_attempts,
+                SETTINGS.scene_ai_execution_mode,
+            )
+            return
+
         # Keep LLM involvement constrained to scene understanding between CV and corpus stages.
         scene_outputs: dict[str, Any] = _default_scene_outputs()
         if SETTINGS.enable_scene_understanding_pipeline:
@@ -570,6 +645,7 @@ def process_video(
 
         corpus_output: dict[str, Any] | None = None
         if SETTINGS.enable_corpus_pipeline:
+            jobs.set_job_stage(job_id, "corpus_processing")
             corpus_output = corpus.build(
                 job_id=job_id,
                 scenes=scenes,

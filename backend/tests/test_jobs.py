@@ -2,7 +2,7 @@
 
 import uuid
 
-from app.jobs import complete_job, create_job, fail_job, get_job
+from app.jobs import complete_job, create_job, fail_job, get_job, set_job_stage, update_job_metadata
 
 
 class TestCreateJob:
@@ -16,6 +16,7 @@ class TestCreateJob:
         job = get_job(job_id)
         assert job is not None
         assert job["status"] == "processing"
+        assert job["stage"] == "processing"
 
 
 class TestGetJob:
@@ -47,3 +48,20 @@ class TestFailJob:
         assert job is not None
         assert job["status"] == "failed"
         assert job["error"] == "something broke"
+
+
+class TestInternalStage:
+    def test_set_job_stage_updates_processing_job(self):
+        job_id = create_job()
+        set_job_stage(job_id, "waiting_scene_ai")
+        job = get_job(job_id)
+        assert job is not None
+        assert job["status"] == "processing"
+        assert job["stage"] == "waiting_scene_ai"
+
+    def test_update_job_metadata_merges_fields(self):
+        job_id = create_job()
+        update_job_metadata(job_id, {"scene_task_id": "task-1"})
+        job = get_job(job_id)
+        assert job is not None
+        assert job["scene_task_id"] == "task-1"
