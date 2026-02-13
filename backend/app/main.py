@@ -17,7 +17,7 @@ from app import analysis, cleanup, corpus, corpus_ingest, jobs, scene, video_und
 from app.scene_ai_worker_contracts import SceneWorkerTaskInput
 from app.scene_task_queue import PostgresSceneTaskQueue, build_postgres_scene_task_queue
 from app.config import Settings
-from app.models import ModelLoader
+from app.models import ModelLoader, tensorflow_runtime_note
 from app.schemas import JobResult, JobStatus
 from app.storage import MediaStore, MediaStoreConfigError, MediaStoreError, R2MediaStore
 
@@ -85,6 +85,15 @@ def _startup_validate_settings() -> None:
                 "Corpus embedding generation may fail at runtime.",
                 ", ".join(missing_embedding),
             )
+    if bool(getattr(SETTINGS, "enable_face_identity_pipeline", False)):
+        missing_face_identity = SETTINGS.missing_face_identity_fields()
+        if missing_face_identity:
+            logger.warning(
+                "Face identity pipeline enabled with missing settings: %s. "
+                "Continuous identity tracking may fail at runtime.",
+                ", ".join(missing_face_identity),
+            )
+        logger.info("%s", tensorflow_runtime_note())
     if SETTINGS.enable_corpus_ingest and not SETTINGS.enable_corpus_pipeline:
         logger.warning(
             "Corpus ingest is enabled while corpus build is disabled. "
@@ -365,6 +374,7 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
         "scene_narratives": [],
         "video_synopsis": None,
         "corpus": None,
+        "video_face_identities": result_payload.get("video_face_identities"),
     }
     raw_frames = result_payload.get("frames", [])
     if not isinstance(raw_frames, list):
@@ -588,6 +598,25 @@ def process_video(
             )
             frame_results.append(result)
 
+        video_face_identities: dict[str, Any] | None = None
+        if bool(getattr(SETTINGS, "enable_face_identity_pipeline", False)):
+            tracking_frames = scene.extract_tracking_frames(
+                video_path,
+                scenes,
+                sample_fps=int(getattr(SETTINGS, "face_identity_sample_fps", 4)),
+                max_samples_per_scene=int(
+                    getattr(SETTINGS, "face_identity_max_samples_per_scene", 120)
+                ),
+            )
+            video_face_identities = analysis.run_face_identity_pipeline(
+                keyframes=frames,
+                frame_results=frame_results,
+                tracking_frames=tracking_frames,
+                models=models,
+                settings=SETTINGS,
+                job_id=job_id,
+            )
+
         if _queue_mode_enabled():
             required_keys = _collect_required_artifact_keys(
                 job_id,
@@ -596,6 +625,7 @@ def process_video(
                     "frames": frame_results,
                     **_default_scene_outputs(),
                     "corpus": None,
+                    "video_face_identities": video_face_identities,
                 },
                 source_key,
             )
@@ -605,6 +635,7 @@ def process_video(
                 scenes=scenes,
                 frame_results=frame_results,
                 source_key=source_key,
+                video_face_identities=video_face_identities,
             )
             task = get_scene_task_queue().enqueue_task(
                 job_id=job_id,
@@ -668,6 +699,7 @@ def process_video(
             "frames": frame_results,
             **scene_outputs,
             "corpus": corpus_output,
+            "video_face_identities": video_face_identities,
         }
         required_keys = _collect_required_artifact_keys(job_id, payload, source_key)
         _verify_required_artifacts(media_store, job_id, required_keys)

@@ -19,6 +19,17 @@ def _read_int(name: str, default: int, minimum: int) -> int:
     return max(value, minimum)
 
 
+def _read_float(name: str, default: float, minimum: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(value, minimum)
+
+
 def _read_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -111,6 +122,16 @@ class Settings:
     embedding_model_id: str
     embedding_model_version: str
     embedding_dimension: int
+    enable_face_identity_pipeline: bool
+    face_identity_backend: str
+    face_identity_sample_fps: int
+    face_identity_max_samples_per_scene: int
+    face_identity_scene_similarity_threshold: float
+    face_identity_video_similarity_threshold: float
+    face_identity_ambiguity_margin: float
+    face_identity_embedding_dimension: int
+    face_identity_model_id: str
+    face_identity_weights_path: str
 
     @classmethod
     def from_env(
@@ -215,6 +236,43 @@ class Settings:
             embedding_model_id=os.getenv("EMBEDDING_MODEL_ID", "gemini-embedding-001").strip(),
             embedding_model_version=os.getenv("EMBEDDING_MODEL_VERSION", "v1").strip(),
             embedding_dimension=_read_int("EMBEDDING_DIMENSION", default=16, minimum=1),
+            enable_face_identity_pipeline=_read_bool("ENABLE_FACE_IDENTITY_PIPELINE", default=False),
+            face_identity_backend=_read_choice(
+                "FACE_IDENTITY_BACKEND",
+                default="auto",
+                allowed={"auto", "cuda", "mps", "cpu"},
+            ),
+            face_identity_sample_fps=_read_int("FACE_IDENTITY_SAMPLE_FPS", default=4, minimum=1),
+            face_identity_max_samples_per_scene=_read_int(
+                "FACE_IDENTITY_MAX_SAMPLES_PER_SCENE",
+                default=120,
+                minimum=1,
+            ),
+            face_identity_scene_similarity_threshold=_read_float(
+                "FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD",
+                default=0.7,
+                minimum=0.0,
+            ),
+            face_identity_video_similarity_threshold=_read_float(
+                "FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD",
+                default=0.75,
+                minimum=0.0,
+            ),
+            face_identity_ambiguity_margin=_read_float(
+                "FACE_IDENTITY_AMBIGUITY_MARGIN",
+                default=0.03,
+                minimum=0.0,
+            ),
+            face_identity_embedding_dimension=_read_int(
+                "FACE_IDENTITY_EMBEDDING_DIMENSION",
+                default=512,
+                minimum=16,
+            ),
+            face_identity_model_id=(
+                os.getenv("FACE_IDENTITY_MODEL_ID", "insightface-arcface-pytorch").strip()
+                or "insightface-arcface-pytorch"
+            ),
+            face_identity_weights_path=os.getenv("FACE_IDENTITY_WEIGHTS_PATH", "").strip(),
         )
 
     def missing_r2_fields(self) -> list[str]:
@@ -244,4 +302,17 @@ class Settings:
             missing.append("EMBEDDING_MODEL_ID")
         if model_id.startswith("gemini-") and not self.google_api_key:
             missing.append("GOOGLE_API_KEY")
+        return missing
+
+    def missing_face_identity_fields(self) -> list[str]:
+        """Return missing required settings for configured face identity processing."""
+        missing: list[str] = []
+        if not self.enable_face_identity_pipeline:
+            return missing
+        if not self.face_identity_model_id.strip():
+            missing.append("FACE_IDENTITY_MODEL_ID")
+        if self.face_identity_sample_fps < 1:
+            missing.append("FACE_IDENTITY_SAMPLE_FPS")
+        if self.face_identity_embedding_dimension < 16:
+            missing.append("FACE_IDENTITY_EMBEDDING_DIMENSION")
         return missing
