@@ -172,7 +172,7 @@ class TestJobResult:
             video_synopsis=VideoSynopsisResult(
                 synopsis="Combined synopsis.",
                 artifact="jobs/j/summary/synopsis.json",
-                model="gemini-2.5-flash-lite",
+                model="gemini-3-flash-preview",
                 trace={"stage": "video_synopsis"},
             ),
         )

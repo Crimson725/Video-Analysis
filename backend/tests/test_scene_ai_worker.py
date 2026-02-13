@@ -28,8 +28,8 @@ def _settings(**overrides):
         "scene_ai_failure_policy": "fail_job",
         "scene_ai_prompt_version": "v1",
         "scene_ai_runtime_version": "v1",
-        "scene_model_id": "gemini-2.5-flash-lite",
-        "synopsis_model_id": "gemini-2.5-flash-lite",
+        "scene_model_id": "gemini-3-flash-preview",
+        "synopsis_model_id": "gemini-3-flash-preview",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -82,7 +82,7 @@ def test_worker_completes_task_and_persists_provenance():
             "video_synopsis": {
                 "synopsis": "Video summary.",
                 "artifact": f"jobs/{job_id}/summary/synopsis.json",
-                "model": "gemini-2.5-flash-lite",
+                "model": "gemini-3-flash-preview",
                 "trace": {"stage": "video_synopsis"},
             },
         },

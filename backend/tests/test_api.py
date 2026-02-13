@@ -204,7 +204,7 @@ class TestGetResults:
             "video_synopsis": {
                 "synopsis": "Video synopsis.",
                 "artifact": f"jobs/{job_id}/summary/synopsis.json",
-                "model": "gemini-2.5-flash-lite",
+                "model": "gemini-3-flash-preview",
             },
         }
         jobs.complete_job(job_id, payload)

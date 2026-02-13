@@ -68,6 +68,8 @@ These flags are enabled by default and can be overridden per environment:
 - `SCENE_AI_WORKER_POLL_INTERVAL_SECONDS` - worker polling interval (`2` default)
 - `SCENE_AI_PROMPT_VERSION` - worker prompt policy version metadata (`v1` default)
 - `SCENE_AI_RUNTIME_VERSION` - worker runtime policy version metadata (`v1` default)
+- `SCENE_MODEL_ID` - Gemini model for scene narrative generation (default `gemini-3-flash-preview`)
+- `SYNOPSIS_MODEL_ID` - Gemini model for video synopsis generation (default `gemini-3-flash-preview`)
 - `ENABLE_CORPUS_PIPELINE` - build graph/retrieval/embeddings bundles after scene understanding (`true` default)
 - `ENABLE_CORPUS_INGEST` - ingest bundles into configured graph/vector adapters (`true` default)
 - `GRAPH_BACKEND` - `neo4j` or `memory`

@@ -13,8 +13,8 @@ from app.video_understanding import GeminiSceneLLMClient, run_scene_understandin
 def _settings(**overrides):
     defaults = {
         "google_api_key": "",
-        "scene_model_id": "gemini-2.5-flash-lite",
-        "synopsis_model_id": "gemini-2.5-flash-lite",
+        "scene_model_id": "gemini-3-flash-preview",
+        "synopsis_model_id": "gemini-3-flash-preview",
         "scene_llm_retry_count": 1,
         "scene_packet_max_entities": 8,
         "scene_packet_max_events": 8,

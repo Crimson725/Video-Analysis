@@ -2,6 +2,10 @@
 
 End-to-end workflow: upload/stage video -> per-frame CV analysis -> optional scene understanding -> optional corpus build/ingest -> signed results.
 
+Scene understanding uses Gemini for narrative and synopsis generation (default: `gemini-3-flash-preview`; override via `SCENE_MODEL_ID` / `SYNOPSIS_MODEL_ID`).
+
+Frame analysis artifacts are JSON-only (TOON format support has been removed).
+
 ```mermaid
 flowchart TD
     %% Styling
@@ -63,8 +67,8 @@ flowchart TD
         R2Det[(R2: frames/det)]:::storage
         R2Face[(R2: frames/face)]:::storage
 
-        PersistArtifacts[Persist frame artifacts]:::process
-        R2FrameJSON[(R2: frame_N.json)]:::storage
+        PersistArtifacts["Persist frame artifacts (JSON)"]:::process
+        R2FrameJSON[(R2: analysis/json/frame_N.json)]:::storage
         FrameResults[frame_results array]:::output
 
         AnalyzeFrame --> YOLOSeg

@@ -78,7 +78,7 @@ def test_process_video_includes_scene_outputs(tmp_path):
         "video_synopsis": {
             "synopsis": "Video synopsis.",
             "artifact": "jobs/job-1/summary/synopsis.json",
-            "model": "gemini-2.5-flash-lite",
+            "model": "gemini-3-flash-preview",
         },
     }
 
@@ -152,7 +152,7 @@ def test_process_video_runs_scene_understanding_between_cv_and_corpus(tmp_path):
         "video_synopsis": {
             "synopsis": "Video synopsis.",
             "artifact": f"jobs/{job_id}/summary/synopsis.json",
-            "model": "gemini-2.5-flash-lite",
+            "model": "gemini-3-flash-preview",
         },
     }
 

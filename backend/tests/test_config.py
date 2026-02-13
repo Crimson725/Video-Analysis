@@ -29,8 +29,8 @@ class TestSettings:
         assert settings.scene_ai_execution_mode == "in_process"
         assert settings.enable_corpus_pipeline is True
         assert settings.enable_corpus_ingest is True
-        assert settings.scene_model_id == "gemini-2.5-flash-lite"
-        assert settings.synopsis_model_id == "gemini-2.5-flash-lite"
+        assert settings.scene_model_id == "gemini-3-flash-preview"
+        assert settings.synopsis_model_id == "gemini-3-flash-preview"
         assert settings.embedding_model_id == "gemini-embedding-001"
 
     def test_scene_ai_queue_settings_parse(self, monkeypatch):

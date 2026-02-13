@@ -700,9 +700,9 @@ def gemini_probe(gemini_api_key):
     """Validate Gemini client can be constructed for external-API tests."""
     from app.video_understanding import GeminiSceneLLMClient
 
-    scene_model_id = _read_env("SCENE_MODEL_ID", "gemini-2.5-flash-lite") or "gemini-2.5-flash-lite"
+    scene_model_id = _read_env("SCENE_MODEL_ID", "gemini-3-flash-preview") or "gemini-3-flash-preview"
     synopsis_model_id = (
-        _read_env("SYNOPSIS_MODEL_ID", "gemini-2.5-flash-lite") or "gemini-2.5-flash-lite"
+        _read_env("SYNOPSIS_MODEL_ID", "gemini-3-flash-preview") or "gemini-3-flash-preview"
     )
     try:
         GeminiSceneLLMClient(
