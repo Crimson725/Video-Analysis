@@ -41,6 +41,7 @@ def test_process_video_generates_live_synopsis(
     tmp_path,
     gemini_probe,
     synopsis_e2e_settings,
+    assert_scene_llm_smoke_result,
 ):
     """Run process_video with real Gemini and validate synopsis result structure."""
     del gemini_probe  # probe fixture is used for prerequisite validation.
@@ -72,10 +73,8 @@ def test_process_video_generates_live_synopsis(
     )
 
     result = JobResult(**job["result"])
-    assert len(result.scene_narratives) > 0
-    assert result.video_synopsis is not None
-
-    synopsis = result.video_synopsis
-    assert synopsis.synopsis.strip() != ""
-    assert synopsis.artifact == f"jobs/{job_id}/summary/synopsis.json"
-    assert synopsis.model == synopsis_e2e_settings.synopsis_model_id
+    assert_scene_llm_smoke_result(
+        result,
+        job_id=job_id,
+        synopsis_model_id=synopsis_e2e_settings.synopsis_model_id,
+    )

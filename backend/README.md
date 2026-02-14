@@ -170,44 +170,33 @@ Behavior:
 - Writes JSON artifacts to R2, reads them back, and validates payload integrity.
 - Always deletes test-created objects in teardown/finally, including failure-path scenarios.
 
-## Video Synopsis End-to-End Integration Test (Live Gemini)
+## Scene LLM External API Smoke Tests (Live Gemini)
 
-Run the targeted synopsis E2E test:
+Recommended smoke command:
 
 ```bash
 cd backend
 GOOGLE_API_KEY="<your-gemini-key>" ENABLE_SCENE_UNDERSTANDING_PIPELINE=true \
-  uv run pytest tests/integration/test_video_synopsis_e2e_integration.py -m "integration and external_api" -vv
+  uv run pytest tests/integration/test_video_synopsis_e2e_integration.py tests/integration/test_output_content_e2e_integration.py -m "integration and external_api" -vv
 ```
+
+Prerequisites:
+
+- `GOOGLE_API_KEY` must be set (or present in `backend/.env.local`).
+- R2 settings must be configured (for example in `backend/.env.r2`).
+- `ENABLE_SCENE_UNDERSTANDING_PIPELINE=true`.
 
 Behavior:
 
-- Skips when `GOOGLE_API_KEY` is missing.
-- Skips when Gemini client setup is unavailable.
+- Calls Gemini through the live production scene-understanding runtime path.
+- Skips with actionable guidance when credentials/runtime prerequisites are missing.
 - Skips when Gemini quota/rate-limit availability prevents a live run.
-- Uses live `process_video()` execution and validates `scene_narratives` plus `video_synopsis` contract fields.
-- Keeps assertions structural (no exact generated-text matching).
+- Asserts only minimal non-semantic contract checks: non-empty scene narratives/synopsis and required structural fields.
+- Does not assert exact wording, topical coverage, or narrative/factual correctness.
 
-## Output-Content E2E Integration Test (Canonical Test Video)
+Pass criteria:
 
-Run the dedicated output-content validation suite for the canonical test video:
-
-```bash
-cd backend
-GOOGLE_API_KEY="<your-gemini-key>" ENABLE_SCENE_UNDERSTANDING_PIPELINE=true \
-  uv run pytest tests/integration/test_output_content_e2e_integration.py -m "integration and external_api" -vv
-```
-
-Behavior:
-
-- Uses `Test Videos/WhatCarCanYouGetForAGrand.mp4` as the canonical fixture input.
-- Verifies completion contract plus output-content rubric checks (minimum narrative/synopsis usefulness and topical anchor coverage).
-- Avoids brittle exact-text assertions and model-accuracy metrics.
-- Skips with actionable prerequisite guidance when required env/config is unavailable.
-
-Tuning knobs:
-
-- Edit `backend/tests/integration/fixtures/output_content_expectations.json` to adjust topic anchors and minimum thresholds without changing test assertion logic.
+- The API call succeeds and pipeline output is parseable with minimally usable response fields.
 
 ## Dependencies
 

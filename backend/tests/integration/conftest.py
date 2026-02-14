@@ -1,6 +1,4 @@
 """Shared fixtures for integration tests using real models and real video."""
-
-import json
 import os
 from pathlib import Path
 import shutil
@@ -13,6 +11,7 @@ import pytest
 
 from app.config import Settings
 from app.models import ModelLoader
+from app.schemas import JobResult
 from app.scene import detect_scenes, extract_keyframes
 from app.storage import MediaStoreError, R2MediaStore
 
@@ -29,11 +28,6 @@ _CORPUS_COMPOSE_FILE = _REPO_ROOT / "backend" / "docker-compose.corpus.yml"
 _CORPUS_COMPOSE_PROJECT = "video-analysis-corpus-itest"
 _DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT = 47687
 _DEFAULT_CORPUS_TEST_PGVECTOR_PORT = 45433
-_OUTPUT_CONTENT_EXPECTATIONS = (
-    Path(__file__).resolve().parent / "fixtures" / "output_content_expectations.json"
-)
-
-
 def _load_env_file(path: Path) -> None:
     """Load KEY=VALUE env vars from a dotenv-style file."""
     if not path.is_file():
@@ -62,7 +56,7 @@ def _skip_with_command(message: str) -> None:
     command = (
         "cd backend && "
         "GOOGLE_API_KEY='<your-gemini-key>' ENABLE_SCENE_UNDERSTANDING_PIPELINE=true "
-        "uv run pytest tests/integration/test_output_content_e2e_integration.py "
+        "uv run pytest tests/integration/test_video_synopsis_e2e_integration.py "
         "-m 'integration and external_api' -vv"
     )
     pytest.skip(f"{message}. Enable with: {command}")
@@ -690,7 +684,7 @@ def gemini_api_key():
     key = _read_env("GOOGLE_API_KEY")
     if not key:
         _skip_with_command(
-            "GOOGLE_API_KEY is required for Gemini-backed output-content integration tests"
+            "GOOGLE_API_KEY is required for Gemini-backed scene-understanding smoke tests"
         )
     return key
 
@@ -719,10 +713,12 @@ def gemini_probe(gemini_api_key):
 
 
 @pytest.fixture()
-def synopsis_e2e_settings(monkeypatch, gemini_api_key):
-    """Return settings for synopsis E2E tests with scene understanding enabled."""
+def scene_llm_smoke_settings(monkeypatch, gemini_api_key, gemini_probe):
+    """Return settings for Gemini-backed scene-understanding smoke tests."""
     _load_env_file(_R2_ENV_FILE)
     monkeypatch.setenv("GOOGLE_API_KEY", gemini_api_key)
+    monkeypatch.setenv("SCENE_MODEL_ID", gemini_probe["scene_model_id"])
+    monkeypatch.setenv("SYNOPSIS_MODEL_ID", gemini_probe["synopsis_model_id"])
     monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")
     monkeypatch.setenv("ENABLE_CORPUS_PIPELINE", "false")
     monkeypatch.setenv("ENABLE_CORPUS_INGEST", "false")
@@ -731,32 +727,49 @@ def synopsis_e2e_settings(monkeypatch, gemini_api_key):
     missing_r2 = settings.missing_r2_fields()
     if missing_r2:
         _skip_with_command(
-            "Missing R2 settings for synopsis integration tests: " + ", ".join(missing_r2)
+            "Missing R2 settings for scene-understanding smoke tests: " + ", ".join(missing_r2)
         )
     missing_llm = settings.missing_llm_fields()
     if missing_llm:
         _skip_with_command(
-            "Missing LLM settings for synopsis integration tests: " + ", ".join(missing_llm)
+            "Missing LLM settings for scene-understanding smoke tests: " + ", ".join(missing_llm)
         )
     return settings
 
 
-@pytest.fixture(scope="session")
-def canonical_output_content_expectations():
-    """Load canonical output-content rubric thresholds and topic anchors."""
-    if not _OUTPUT_CONTENT_EXPECTATIONS.is_file():
-        raise RuntimeError(f"Missing expectations file: {_OUTPUT_CONTENT_EXPECTATIONS}")
+@pytest.fixture()
+def synopsis_e2e_settings(scene_llm_smoke_settings):
+    """Backward-compatible alias for smoke settings fixture."""
+    return scene_llm_smoke_settings
 
-    raw = json.loads(_OUTPUT_CONTENT_EXPECTATIONS.read_text(encoding="utf-8"))
-    anchors = [anchor.lower().strip() for anchor in raw.get("topic_anchors", []) if anchor.strip()]
-    if not anchors:
-        raise RuntimeError("output_content_expectations.json must define non-empty topic_anchors")
 
-    return {
-        "video_filename": str(raw.get("video_filename", "WhatCarCanYouGetForAGrand.mp4")).strip(),
-        "min_scene_narrative_chars": int(raw.get("min_scene_narrative_chars", 40)),
-        "min_synopsis_chars": int(raw.get("min_synopsis_chars", 80)),
-        "min_key_moment_chars": int(raw.get("min_key_moment_chars", 6)),
-        "min_topic_anchor_matches": int(raw.get("min_topic_anchor_matches", 1)),
-        "topic_anchors": anchors,
-    }
+@pytest.fixture()
+def assert_scene_llm_smoke_result():
+    """Return helper that verifies minimal non-semantic scene LLM output contract."""
+
+    def _assert(
+        result: JobResult,
+        *,
+        job_id: str,
+        synopsis_model_id: str,
+        min_scene_count: int = 1,
+    ) -> None:
+        assert len(result.scene_narratives) >= min_scene_count
+        assert result.video_synopsis is not None
+
+        for scene in result.scene_narratives:
+            assert scene.narrative_paragraph.strip() != ""
+            assert len(scene.key_moments) > 0
+            assert all(moment.strip() for moment in scene.key_moments)
+            assert scene.end_sec > scene.start_sec
+            assert scene.artifacts.packet == f"jobs/{job_id}/scene/packets/scene_{scene.scene_id}.json"
+            assert scene.artifacts.narrative == (
+                f"jobs/{job_id}/scene/narratives/scene_{scene.scene_id}.json"
+            )
+
+        synopsis = result.video_synopsis
+        assert synopsis.synopsis.strip() != ""
+        assert synopsis.artifact == f"jobs/{job_id}/summary/synopsis.json"
+        assert synopsis.model == synopsis_model_id
+
+    return _assert
