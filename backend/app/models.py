@@ -52,7 +52,7 @@ class ModelLoader:
         return cls._instance
 
     def __init__(self) -> None:
-        preferred_backend = os.getenv("FACE_IDENTITY_BACKEND", "auto")
+        preferred_backend = os.getenv("FACE_IDENTITY_BACKEND", "cpu")
         model_id = normalize_face_identity_model_id(os.getenv("FACE_IDENTITY_MODEL_ID"))
         device = select_torch_device(preferred_backend)
         self.device = device

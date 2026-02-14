@@ -251,7 +251,7 @@ Default behavior (can be set explicitly):
 ```bash
 ENABLE_FACE_IDENTITY_PIPELINE=true
 FACE_IDENTITY_MODEL_ID=edgeface_s_gamma_05
-FACE_IDENTITY_BACKEND=auto
+FACE_IDENTITY_BACKEND=cpu
 FACE_IDENTITY_WEIGHTS_PATH=/absolute/path/to/edgeface_weights.pt
 ```
 

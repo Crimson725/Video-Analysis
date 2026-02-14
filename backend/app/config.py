@@ -284,7 +284,7 @@ class Settings:
             enable_face_identity_pipeline=enable_face_identity_pipeline,
             face_identity_backend=_read_choice(
                 "FACE_IDENTITY_BACKEND",
-                default="auto",
+                default="cpu",
                 allowed={"auto", "cuda", "mps", "cpu"},
             ),
             face_identity_sample_fps=_read_int("FACE_IDENTITY_SAMPLE_FPS", default=4, minimum=1),
