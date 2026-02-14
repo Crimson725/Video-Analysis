@@ -32,6 +32,26 @@ class TestSegmentationItem:
         item = SegmentationItem(object_id=1, class_name="car", mask_polygon=[[0, 0]])
         assert item.class_name == "car"
 
+    def test_accepts_rgb_color_triplets(self):
+        item = SegmentationItem(
+            object_id=1,
+            class_name="person",
+            mask_polygon=[[0, 0], [1, 1]],
+            palette_rgb=[4, 42, 255],
+            bbox_rgb=[4, 42, 255],
+        )
+        assert item.palette_rgb == [4, 42, 255]
+        assert item.bbox_rgb == [4, 42, 255]
+
+    def test_rejects_invalid_palette_rgb_length(self):
+        with pytest.raises(ValidationError):
+            SegmentationItem(
+                object_id=1,
+                class_name="person",
+                mask_polygon=[[0, 0], [1, 1]],
+                palette_rgb=[4, 42],
+            )
+
 
 class TestDetectionItem:
     def test_valid_box(self):
@@ -49,6 +69,28 @@ class TestDetectionItem:
     def test_track_id_is_required(self):
         with pytest.raises(ValidationError):
             DetectionItem(label="dog", confidence=0.95, box=[10, 20, 30, 40])  # type: ignore[call-arg]
+
+    def test_accepts_rgb_color_triplets(self):
+        item = DetectionItem(
+            track_id="dog_1",
+            label="dog",
+            confidence=0.95,
+            box=[10, 20, 30, 40],
+            palette_rgb=[255, 111, 221],
+            bbox_rgb=[255, 111, 221],
+        )
+        assert item.palette_rgb == [255, 111, 221]
+        assert item.bbox_rgb == [255, 111, 221]
+
+    def test_rejects_invalid_bbox_rgb_length(self):
+        with pytest.raises(ValidationError):
+            DetectionItem(
+                track_id="dog_1",
+                label="dog",
+                confidence=0.95,
+                box=[10, 20, 30, 40],
+                bbox_rgb=[255, 111],
+            )
 
 
 class TestFaceItem:
@@ -94,6 +136,8 @@ class TestFaceItem:
             identity_id="face_1",
             confidence=0.99,
             coordinates=[10, 20, 30, 40],
+            palette_rgb=[11, 219, 235],
+            bbox_rgb=[11, 219, 235],
             scene_person_id="scene_0_person_1",
             video_person_id="video_person_1",
             match_confidence=0.92,
@@ -106,6 +150,18 @@ class TestFaceItem:
         assert item.match_confidence == pytest.approx(0.92)
         assert item.is_identity_ambiguous is False
         assert item.embedding_model_id == "edgeface_s_gamma_05"
+        assert item.palette_rgb == [11, 219, 235]
+        assert item.bbox_rgb == [11, 219, 235]
+
+    def test_rejects_invalid_palette_rgb_length(self):
+        with pytest.raises(ValidationError):
+            FaceItem(
+                face_id=1,
+                identity_id="face_1",
+                confidence=0.99,
+                coordinates=[10, 20, 30, 40],
+                palette_rgb=[11, 219],
+            )
 
 
 class TestJobResult:

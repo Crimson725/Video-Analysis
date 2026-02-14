@@ -72,8 +72,12 @@ class TestRunSegmentation:
         assert items[0]["object_id"] == 1
         assert items[0]["class"] == "person"
         assert isinstance(items[0]["mask_polygon"], list)
+        assert items[0]["palette_rgb"] == items[0]["bbox_rgb"]
+        assert len(items[0]["palette_rgb"]) == 3
         assert items[1]["object_id"] == 2
         assert items[1]["class"] == "car"
+        assert items[1]["palette_rgb"] == items[1]["bbox_rgb"]
+        assert len(items[1]["palette_rgb"]) == 3
 
     @patch("app.analysis.cv2.imwrite")
     def test_no_masks_returns_empty_list(
@@ -149,8 +153,12 @@ class TestRunDetection:
         assert items[0]["label"] == "person"
         assert items[0]["confidence"] == pytest.approx(0.95, abs=1e-5)
         assert items[0]["box"] == [10, 20, 30, 40]
+        assert items[0]["palette_rgb"] == items[0]["bbox_rgb"]
+        assert len(items[0]["palette_rgb"]) == 3
         assert items[1]["label"] == "car"
+        assert items[1]["palette_rgb"] == items[1]["bbox_rgb"]
         assert items[2]["label"] == "dog"
+        assert items[2]["palette_rgb"] == items[2]["bbox_rgb"]
 
     @patch("app.analysis.cv2.imwrite")
     def test_track_id_persists_across_frames_with_tracker(
@@ -266,8 +274,13 @@ class TestRunFaceRecognition:
         assert items[0]["identity_id"] == "face_1"
         assert items[0]["confidence"] == 0.95
         assert items[0]["coordinates"] == [10, 20, 30, 40]
+        assert items[0]["palette_rgb"] == items[0]["bbox_rgb"]
+        assert len(items[0]["palette_rgb"]) == 3
         assert items[1]["face_id"] == 2
         assert items[1]["identity_id"] == "face_2"
+        assert items[1]["palette_rgb"] == items[1]["bbox_rgb"]
+        drawn_color = mock_rect.call_args_list[0].args[3]
+        assert drawn_color == tuple(reversed(items[0]["bbox_rgb"]))
 
     @patch("app.analysis.cv2.imwrite")
     @patch("app.analysis.cv2.cvtColor")
@@ -305,6 +318,7 @@ class TestRunFaceRecognition:
 
         assert frame_0_items[0]["identity_id"] == "face_1"
         assert frame_1_items[0]["identity_id"] == "face_1"
+        assert frame_0_items[0]["bbox_rgb"] == frame_1_items[0]["bbox_rgb"]
 
     @patch("app.analysis.cv2.imwrite")
     @patch("app.analysis.cv2.cvtColor")
@@ -413,12 +427,34 @@ class TestAnalyzeFrame:
     def test_orchestrates_all_pipelines(
         self, mock_seg, mock_det, mock_face, mock_models, static_dir
     ):
-        mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
+        mock_seg.return_value = [
+            {
+                "object_id": 1,
+                "class": "person",
+                "mask_polygon": [[0, 0]],
+                "palette_rgb": [4, 42, 255],
+                "bbox_rgb": [4, 42, 255],
+            }
+        ]
         mock_det.return_value = [
-            {"track_id": "car_1", "label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}
+            {
+                "track_id": "car_1",
+                "label": "car",
+                "confidence": 0.9,
+                "box": [1, 2, 3, 4],
+                "palette_rgb": [11, 219, 235],
+                "bbox_rgb": [11, 219, 235],
+            }
         ]
         mock_face.return_value = [
-            {"face_id": 1, "identity_id": "face_1", "confidence": 0.95, "coordinates": [5, 6, 7, 8]}
+            {
+                "face_id": 1,
+                "identity_id": "face_1",
+                "confidence": 0.95,
+                "coordinates": [5, 6, 7, 8],
+                "palette_rgb": [11, 219, 235],
+                "bbox_rgb": [11, 219, 235],
+            }
         ]
 
         frame_data = {
@@ -448,6 +484,9 @@ class TestAnalyzeFrame:
         assert len(result["analysis"]["semantic_segmentation"]) == 1
         assert len(result["analysis"]["object_detection"]) == 1
         assert len(result["analysis"]["face_recognition"]) == 1
+        assert len(result["analysis"]["semantic_segmentation"][0]["palette_rgb"]) == 3
+        assert len(result["analysis"]["object_detection"][0]["palette_rgb"]) == 3
+        assert len(result["analysis"]["face_recognition"][0]["palette_rgb"]) == 3
 
         mock_seg.assert_called_once()
         mock_det.assert_called_once()
@@ -459,12 +498,34 @@ class TestAnalyzeFrame:
     def test_persists_json_for_contract_valid_payload(
         self, mock_seg, mock_det, mock_face, mock_models, static_dir
     ):
-        mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
+        mock_seg.return_value = [
+            {
+                "object_id": 1,
+                "class": "person",
+                "mask_polygon": [[0, 0]],
+                "palette_rgb": [4, 42, 255],
+                "bbox_rgb": [4, 42, 255],
+            }
+        ]
         mock_det.return_value = [
-            {"track_id": "car_1", "label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}
+            {
+                "track_id": "car_1",
+                "label": "car",
+                "confidence": 0.9,
+                "box": [1, 2, 3, 4],
+                "palette_rgb": [11, 219, 235],
+                "bbox_rgb": [11, 219, 235],
+            }
         ]
         mock_face.return_value = [
-            {"face_id": 1, "identity_id": "face_1", "confidence": 0.95, "coordinates": [5, 6, 7, 8]}
+            {
+                "face_id": 1,
+                "identity_id": "face_1",
+                "confidence": 0.95,
+                "coordinates": [5, 6, 7, 8],
+                "palette_rgb": [11, 219, 235],
+                "bbox_rgb": [11, 219, 235],
+            }
         ]
 
         media_store = MagicMock()
@@ -486,6 +547,7 @@ class TestAnalyzeFrame:
         assert set(json_payload["analysis_artifacts"].keys()) == {"json"}
         assert "metadata" in json_payload
         assert json_payload["analysis"]["object_detection"][0]["track_id"] == "car_1"
+        assert len(json_payload["analysis"]["object_detection"][0]["palette_rgb"]) == 3
 
     @patch("app.analysis.run_face_recognition")
     @patch("app.analysis.run_detection")
@@ -493,12 +555,34 @@ class TestAnalyzeFrame:
     def test_persists_json_for_multiple_frames_with_deterministic_keys(
         self, mock_seg, mock_det, mock_face, mock_models, static_dir
     ):
-        mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
+        mock_seg.return_value = [
+            {
+                "object_id": 1,
+                "class": "person",
+                "mask_polygon": [[0, 0]],
+                "palette_rgb": [4, 42, 255],
+                "bbox_rgb": [4, 42, 255],
+            }
+        ]
         mock_det.return_value = [
-            {"track_id": "car_1", "label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}
+            {
+                "track_id": "car_1",
+                "label": "car",
+                "confidence": 0.9,
+                "box": [1, 2, 3, 4],
+                "palette_rgb": [11, 219, 235],
+                "bbox_rgb": [11, 219, 235],
+            }
         ]
         mock_face.return_value = [
-            {"face_id": 1, "identity_id": "face_1", "confidence": 0.95, "coordinates": [5, 6, 7, 8]}
+            {
+                "face_id": 1,
+                "identity_id": "face_1",
+                "confidence": 0.95,
+                "coordinates": [5, 6, 7, 8],
+                "palette_rgb": [11, 219, 235],
+                "bbox_rgb": [11, 219, 235],
+            }
         ]
 
         media_store = MagicMock()
@@ -549,12 +633,34 @@ class TestAnalyzeFrame:
     def test_persist_failure_cleans_up_analysis_artifacts(
         self, mock_seg, mock_det, mock_face, mock_models, static_dir
     ):
-        mock_seg.return_value = [{"object_id": 1, "class": "person", "mask_polygon": [[0, 0]]}]
+        mock_seg.return_value = [
+            {
+                "object_id": 1,
+                "class": "person",
+                "mask_polygon": [[0, 0]],
+                "palette_rgb": [4, 42, 255],
+                "bbox_rgb": [4, 42, 255],
+            }
+        ]
         mock_det.return_value = [
-            {"track_id": "car_1", "label": "car", "confidence": 0.9, "box": [1, 2, 3, 4]}
+            {
+                "track_id": "car_1",
+                "label": "car",
+                "confidence": 0.9,
+                "box": [1, 2, 3, 4],
+                "palette_rgb": [11, 219, 235],
+                "bbox_rgb": [11, 219, 235],
+            }
         ]
         mock_face.return_value = [
-            {"face_id": 1, "identity_id": "face_1", "confidence": 0.95, "coordinates": [5, 6, 7, 8]}
+            {
+                "face_id": 1,
+                "identity_id": "face_1",
+                "confidence": 0.95,
+                "coordinates": [5, 6, 7, 8],
+                "palette_rgb": [11, 219, 235],
+                "bbox_rgb": [11, 219, 235],
+            }
         ]
 
         media_store = MagicMock()

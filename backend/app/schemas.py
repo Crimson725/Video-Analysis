@@ -32,6 +32,8 @@ class SegmentationItem(BaseModel):
     object_id: int
     class_name: str = Field(..., alias="class")
     mask_polygon: list[list[int]]
+    palette_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
+    bbox_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
 
 
 class DetectionItem(BaseModel):
@@ -41,6 +43,8 @@ class DetectionItem(BaseModel):
     label: str
     confidence: float
     box: list[int] = Field(..., min_length=4, max_length=4)
+    palette_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
+    bbox_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
 
 
 class FaceItem(BaseModel):
@@ -50,6 +54,8 @@ class FaceItem(BaseModel):
     identity_id: str
     confidence: float
     coordinates: list[int] = Field(..., min_length=4, max_length=4)
+    palette_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
+    bbox_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
     scene_person_id: str | None = None
     video_person_id: str | None = None
     match_confidence: float | None = None

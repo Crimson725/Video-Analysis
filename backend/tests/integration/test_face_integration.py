@@ -56,6 +56,15 @@ class TestRunFaceRecognitionIntegration:
             for coord in item["coordinates"]:
                 assert isinstance(coord, int)
 
+            # palette_rgb/bbox_rgb: RGB triplets
+            assert isinstance(item["palette_rgb"], list)
+            assert isinstance(item["bbox_rgb"], list)
+            assert len(item["palette_rgb"]) == 3
+            assert len(item["bbox_rgb"]) == 3
+            for channel in item["palette_rgb"] + item["bbox_rgb"]:
+                assert isinstance(channel, int)
+                assert 0 <= channel <= 255
+
 
 # ---------------------------------------------------------------------------
 # 6.3 — run_face_recognition saves a visualization file

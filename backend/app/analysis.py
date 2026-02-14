@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 from PIL import Image
 from pydantic import ValidationError
+from ultralytics.utils.plotting import colors as ultralytics_colors
 
 from app.face_identity import (
     EdgeFaceTorchEmbedder,
@@ -218,6 +219,17 @@ def _to_int_coords(coord: float) -> int:
     return int(round(coord))
 
 
+def _rgb_triplet_from_index(index: int) -> list[int]:
+    """Resolve deterministic RGB triplet from Ultralytics palette index."""
+    color = ultralytics_colors(index, bgr=False)
+    return [int(color[0]), int(color[1]), int(color[2])]
+
+
+def _to_bgr_tuple(color_rgb: list[int]) -> tuple[int, int, int]:
+    """Convert RGB triplet metadata to OpenCV-compatible BGR tuple."""
+    return (int(color_rgb[2]), int(color_rgb[1]), int(color_rgb[0]))
+
+
 def _persist_visualization(
     image: np.ndarray,
     local_path: Path | None,
@@ -305,13 +317,17 @@ def run_segmentation(
         zip(result.masks.xy, result.boxes.cls.cpu().numpy()),
         start=1,
     ):
-        class_name = names.get(int(cls_id), str(int(cls_id)))
+        cls_index = int(cls_id)
+        class_name = names.get(cls_index, str(cls_index))
         polygon = [[_to_int_coords(x), _to_int_coords(y)] for x, y in mask_xy]
+        color_rgb = _rgb_triplet_from_index(cls_index)
         items.append(
             {
                 "object_id": object_id,
                 "class": class_name,
                 "mask_polygon": polygon,
+                "palette_rgb": list(color_rgb),
+                "bbox_rgb": list(color_rgb),
             }
         )
     return items
@@ -399,8 +415,10 @@ def run_detection(
     for index, box in enumerate(xyxy):
         score = conf[index]
         cls_id = cls_ids[index]
-        label = names.get(int(cls_id), str(int(cls_id)))
+        cls_index = int(cls_id)
+        label = names.get(cls_index, str(cls_index))
         box_tuple = _to_int_box(box)
+        color_rgb = _rgb_triplet_from_index(cls_index)
         track_num = _resolve_detection_track_num(
             box_ids=box_ids,
             index=index,
@@ -419,6 +437,8 @@ def run_detection(
                 "label": label,
                 "confidence": float(score),
                 "box": list(box_tuple),
+                "palette_rgb": list(color_rgb),
+                "bbox_rgb": list(color_rgb),
             }
         )
     return items
@@ -458,9 +478,6 @@ def run_face_recognition(
             x2 = _to_int_coords(box[2])
             y2 = _to_int_coords(box[3])
 
-            # Draw bounding box on visualization
-            cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
             face_id += 1
             if face_tracker is not None:
                 identity_num = face_tracker.assign_identity(
@@ -471,13 +488,18 @@ def run_face_recognition(
             else:
                 identity_num = face_id
             used_identities.add(identity_num)
+            color_rgb = _rgb_triplet_from_index(identity_num)
 
+            # OpenCV drawing APIs expect BGR channel order.
+            cv2.rectangle(vis_img, (x1, y1), (x2, y2), _to_bgr_tuple(color_rgb), 2)
             items.append(
                 {
                     "face_id": face_id,
                     "identity_id": f"face_{identity_num}",
                     "confidence": prob,
                     "coordinates": [x1, y1, x2, y2],
+                    "palette_rgb": list(color_rgb),
+                    "bbox_rgb": list(color_rgb),
                 }
             )
 

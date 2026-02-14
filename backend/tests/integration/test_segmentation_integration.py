@@ -54,6 +54,15 @@ class TestRunSegmentationIntegration:
                 assert isinstance(point[0], int)
                 assert isinstance(point[1], int)
 
+            # palette_rgb/bbox_rgb: RGB triplets
+            assert isinstance(item["palette_rgb"], list)
+            assert isinstance(item["bbox_rgb"], list)
+            assert len(item["palette_rgb"]) == 3
+            assert len(item["bbox_rgb"]) == 3
+            for channel in item["palette_rgb"] + item["bbox_rgb"]:
+                assert isinstance(channel, int)
+                assert 0 <= channel <= 255
+
 
 # ---------------------------------------------------------------------------
 # 4.3 — run_segmentation saves a visualization file
