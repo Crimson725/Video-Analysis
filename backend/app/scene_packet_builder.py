@@ -11,6 +11,9 @@ from app.scene_runtime_contracts import (
     EventCount,
     KeyframeRef,
     SceneNarrativeModel,
+    SceneEvidenceModality,
+    SceneEvidenceRef,
+    SceneFrameContext,
     ScenePacket,
 )
 from app.storage import build_corpus_key, build_scene_key
@@ -18,6 +21,19 @@ from app.storage import build_corpus_key, build_scene_key
 if TYPE_CHECKING:
     from app.config import Settings
     from app.storage import MediaStore
+
+
+REQUIRED_SCENE_MODALITY_FILE_KEYS: dict[SceneEvidenceModality, str] = {
+    "original": "original",
+    "object_detection": "detection",
+    "semantic_segmentation": "segmentation",
+}
+FACE_MODALITY: SceneEvidenceModality = "face_recognition"
+FACE_MODALITY_FILE_KEY = "face"
+
+
+class ScenePacketValidationError(ValueError):
+    """Raised when multimodal scene packet linkage is invalid."""
 
 
 def parse_timestamp_seconds(timestamp: str) -> float:
@@ -125,6 +141,96 @@ def select_keyframes(
             )
         )
     return refs
+
+
+def _summarize_frame_analysis(frame: dict[str, Any]) -> dict[str, Any]:
+    analysis = frame.get("analysis", {})
+    detections = analysis.get("object_detection", [])
+    segments = analysis.get("semantic_segmentation", [])
+    faces = analysis.get("face_recognition", [])
+    return {
+        "object_detection_count": len(detections),
+        "face_recognition_count": len(faces),
+        "semantic_segmentation_count": len(segments),
+        "top_detection_labels": [str(item.get("label", "unknown")) for item in detections[:8]],
+        "top_segmentation_classes": [str(item.get("class", "unknown")) for item in segments[:8]],
+    }
+
+
+def build_scene_evidence(
+    *,
+    scene_id: int,
+    scene_frames: list[dict[str, Any]],
+) -> tuple[list[SceneFrameContext], list[SceneEvidenceRef], dict[str, dict[str, Any]]]:
+    """Build deterministic frame contexts + multimodal evidence links for one scene."""
+    frame_contexts: list[SceneFrameContext] = []
+    evidence_refs: list[SceneEvidenceRef] = []
+    evidence_index: dict[str, dict[str, Any]] = {}
+
+    sorted_scene_frames = sorted(
+        scene_frames,
+        key=lambda item: (
+            parse_timestamp_seconds(str(item.get("timestamp", ""))),
+            int(item.get("frame_id", 0)),
+        ),
+    )
+
+    for frame in sorted_scene_frames:
+        frame_id = int(frame.get("frame_id", 0))
+        timestamp = str(frame.get("timestamp", ""))
+        files = frame.get("files", {})
+        analysis = frame.get("analysis", {})
+        analysis_artifacts = frame.get("analysis_artifacts", {})
+        json_artifact_key = str(analysis_artifacts.get("json", "")).strip()
+        has_faces = len(analysis.get("face_recognition", [])) > 0
+
+        modality_image_keys: dict[SceneEvidenceModality, str] = {}
+        for modality, file_key in REQUIRED_SCENE_MODALITY_FILE_KEYS.items():
+            modality_image_keys[modality] = str(files.get(file_key, "")).strip()
+        if has_faces:
+            modality_image_keys[FACE_MODALITY] = str(files.get(FACE_MODALITY_FILE_KEY, "")).strip()
+
+        frame_contexts.append(
+            SceneFrameContext(
+                frame_id=frame_id,
+                timestamp=timestamp,
+                json_artifact_key=json_artifact_key,
+                has_faces=has_faces,
+                modality_image_keys=modality_image_keys,
+                analysis_summary=_summarize_frame_analysis(frame),
+            )
+        )
+
+        for modality in sorted(modality_image_keys.keys()):
+            image_uri = modality_image_keys[modality]
+            evidence_id = deterministic_id(
+                "evidence",
+                scene_id,
+                frame_id,
+                modality,
+                image_uri,
+                json_artifact_key,
+            )
+            ref = SceneEvidenceRef(
+                evidence_id=evidence_id,
+                scene_id=scene_id,
+                frame_id=frame_id,
+                timestamp=timestamp,
+                modality=modality,
+                image_uri=image_uri,
+                json_artifact_key=json_artifact_key,
+            )
+            evidence_refs.append(ref)
+            evidence_index[evidence_id] = {
+                "scene_id": scene_id,
+                "frame_id": frame_id,
+                "timestamp": timestamp,
+                "modality": modality,
+                "image_uri": image_uri,
+                "json_artifact_key": json_artifact_key,
+            }
+
+    return frame_contexts, evidence_refs, evidence_index
 
 
 def deterministic_id(prefix: str, *parts: Any) -> str:
@@ -392,8 +498,87 @@ def build_retrieval_chunks(
     ]
 
 
+def validate_scene_packet_contract(packet: ScenePacket) -> None:
+    """Validate multimodal packet completeness and image↔JSON linkage."""
+    if not packet.scene_frames:
+        raise ScenePacketValidationError(
+            f"Scene {packet.scene_id} has no frame context for multimodal packet"
+        )
+
+    frame_by_id: dict[int, SceneFrameContext] = {}
+    for frame in packet.scene_frames:
+        if frame.frame_id in frame_by_id:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} has duplicate frame_id={frame.frame_id} in frame context"
+            )
+        if not frame.json_artifact_key:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} frame {frame.frame_id} is missing analysis JSON artifact key"
+            )
+        for modality in REQUIRED_SCENE_MODALITY_FILE_KEYS:
+            if not frame.modality_image_keys.get(modality):
+                raise ScenePacketValidationError(
+                    f"Scene {packet.scene_id} frame {frame.frame_id} is missing required modality '{modality}'"
+                )
+        if frame.has_faces and not frame.modality_image_keys.get(FACE_MODALITY):
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} frame {frame.frame_id} has faces but missing face modality artifact"
+            )
+        frame_by_id[frame.frame_id] = frame
+
+    if not packet.evidence_refs:
+        raise ScenePacketValidationError(
+            f"Scene {packet.scene_id} has no evidence references in multimodal packet"
+        )
+
+    seen_ids: set[str] = set()
+    for ref in packet.evidence_refs:
+        if ref.evidence_id in seen_ids:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} has duplicate evidence_id={ref.evidence_id}"
+            )
+        seen_ids.add(ref.evidence_id)
+        if not ref.image_uri:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} evidence {ref.evidence_id} has empty image URI"
+            )
+        if not ref.json_artifact_key:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} evidence {ref.evidence_id} has empty JSON artifact key"
+            )
+        frame_context = frame_by_id.get(ref.frame_id)
+        if frame_context is None:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} evidence {ref.evidence_id} references unknown frame_id={ref.frame_id}"
+            )
+        expected_image_uri = frame_context.modality_image_keys.get(ref.modality)
+        if expected_image_uri != ref.image_uri:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} evidence {ref.evidence_id} image mismatch for modality={ref.modality}"
+            )
+        if frame_context.json_artifact_key != ref.json_artifact_key:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} evidence {ref.evidence_id} JSON link mismatch"
+            )
+        index_entry = packet.evidence_index.get(ref.evidence_id)
+        if not isinstance(index_entry, dict):
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} evidence {ref.evidence_id} missing from evidence index"
+            )
+        if str(index_entry.get("json_artifact_key", "")) != ref.json_artifact_key:
+            raise ScenePacketValidationError(
+                f"Scene {packet.scene_id} evidence index JSON mismatch for {ref.evidence_id}"
+            )
+
+    if set(packet.evidence_index.keys()) != seen_ids:
+        raise ScenePacketValidationError(
+            f"Scene {packet.scene_id} evidence index keys do not match evidence reference keys"
+        )
+
+
 def serialize_scene_packet_json(packet: ScenePacket) -> str:
     """Serialize scene packet to deterministic JSON for prompt + storage."""
+    evidence_by_id = {item.evidence_id: item for item in packet.evidence_refs}
     payload = {
         "scene": {
             "scene_id": packet.scene_id,
@@ -429,6 +614,57 @@ def serialize_scene_packet_json(packet: ScenePacket) -> str:
             }
             for keyframe in packet.keyframes
         ],
+        "scene_frames": [
+            {
+                "frame_id": frame.frame_id,
+                "timestamp": safe_packet_value(frame.timestamp),
+                "json_artifact_key": safe_packet_value(frame.json_artifact_key),
+                "has_faces": frame.has_faces,
+                "analysis_summary": frame.analysis_summary,
+                "modalities": [
+                    {
+                        "modality": modality,
+                        "image_uri": safe_packet_value(image_uri),
+                        "evidence_id": deterministic_id(
+                            "evidence",
+                            packet.scene_id,
+                            frame.frame_id,
+                            modality,
+                            image_uri,
+                            frame.json_artifact_key,
+                        ),
+                    }
+                    for modality, image_uri in sorted(frame.modality_image_keys.items())
+                ],
+            }
+            for frame in packet.scene_frames
+        ],
+        "evidence_refs": [
+            {
+                "evidence_id": item.evidence_id,
+                "frame_id": item.frame_id,
+                "timestamp": safe_packet_value(item.timestamp),
+                "modality": item.modality,
+                "image_uri": safe_packet_value(item.image_uri),
+                "json_artifact_key": safe_packet_value(item.json_artifact_key),
+            }
+            for item in sorted(
+                packet.evidence_refs,
+                key=lambda ref: (ref.frame_id, ref.modality, ref.evidence_id),
+            )
+        ],
+        "evidence_index": {
+            evidence_id: {
+                "scene_id": int(evidence.get("scene_id", packet.scene_id)),
+                "frame_id": int(evidence.get("frame_id", 0)),
+                "timestamp": safe_packet_value(str(evidence.get("timestamp", ""))),
+                "modality": safe_packet_value(str(evidence.get("modality", ""))),
+                "image_uri": safe_packet_value(str(evidence.get("image_uri", ""))),
+                "json_artifact_key": safe_packet_value(str(evidence.get("json_artifact_key", ""))),
+                "known": evidence_id in evidence_by_id,
+            }
+            for evidence_id, evidence in sorted(packet.evidence_index.items())
+        },
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -461,6 +697,10 @@ def build_scene_packets(
     packets: list[ScenePacket] = []
     for scene_id, (start_sec, end_sec) in enumerate(scenes):
         scene_frames = select_scene_frames(frame_results, start_sec, end_sec)
+        scene_frame_contexts, evidence_refs, evidence_index = build_scene_evidence(
+            scene_id=scene_id,
+            scene_frames=scene_frames,
+        )
         entities = collect_entities(scene_frames, settings)
         objects_total = sum(item.count for item in entities if item.entity_type == "object")
         faces_total = sum(item.count for item in entities if item.name == "face")
@@ -517,6 +757,9 @@ def build_scene_packets(
             entities=entities,
             events=events,
             keyframes=keyframes,
+            scene_frames=scene_frame_contexts,
+            evidence_refs=evidence_refs,
+            evidence_index=evidence_index,
             corpus_entities=corpus_entities,
             corpus_events=corpus_events,
             corpus_relations=corpus_relations,
@@ -526,6 +769,7 @@ def build_scene_packets(
             packet_payload="",
             packet_key=packet_key,
         )
+        validate_scene_packet_contract(packet)
         packet_payload = serialize_scene_packet_json(packet)
         packet.packet_payload = packet_payload
         media_store.upload_scene_artifact(

@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.scene_packet_builder import build_scene_packets
+from app.scene_packet_builder import ScenePacketValidationError, build_scene_packets
+from app.scene_worker_runtime import PromptPolicy, build_scene_multimodal_messages, build_scene_prompt
 from app.storage import build_scene_key, build_summary_key
 from app.video_understanding import GeminiSceneLLMClient, run_scene_understanding_pipeline
 
@@ -299,3 +300,151 @@ def test_parse_scene_json_rejects_wrapped_response():
 def test_parse_scene_json_rejects_non_json():
     with pytest.raises(ValueError):
         GeminiSceneLLMClient._parse_scene_json("not-json")
+
+
+def test_packet_payload_includes_multimodal_evidence_links():
+    store = FakeMediaStore()
+    packets = build_scene_packets(
+        job_id="job-1",
+        scenes=[(0.0, 4.0)],
+        frame_results=[_frame(0, "00:00:01.000", ["person"], faces=1)],
+        settings=_settings(scene_packet_disambiguation_label_threshold=1),
+        media_store=store,
+    )
+
+    assert len(packets) == 1
+    packet_payload = [payload for kind, _scene_id, payload in store.scene_uploads if kind == "packet"][0].decode("utf-8")
+    parsed = json.loads(packet_payload)
+    assert len(parsed["scene_frames"]) == 1
+
+    modalities = {item["modality"] for item in parsed["scene_frames"][0]["modalities"]}
+    assert modalities == {
+        "original",
+        "object_detection",
+        "semantic_segmentation",
+        "face_recognition",
+    }
+
+    evidence_ids = {item["evidence_id"] for item in parsed["evidence_refs"]}
+    assert evidence_ids
+    assert evidence_ids == set(parsed["evidence_index"].keys())
+
+
+def test_face_modality_is_conditional_in_scene_packet():
+    packets = build_scene_packets(
+        job_id="job-1",
+        scenes=[(0.0, 4.0)],
+        frame_results=[_frame(0, "00:00:01.000", ["person"], faces=0)],
+        settings=_settings(scene_packet_disambiguation_label_threshold=1),
+        media_store=FakeMediaStore(),
+    )
+
+    packet = packets[0]
+    assert packet.scene_frames[0].has_faces is False
+    assert "face_recognition" not in packet.scene_frames[0].modality_image_keys
+    assert all(item.modality != "face_recognition" for item in packet.evidence_refs)
+
+
+def test_packet_validation_rejects_missing_required_modality():
+    frame = _frame(0, "00:00:01.000", ["person"])
+    frame["files"].pop("segmentation", None)
+
+    with pytest.raises(ScenePacketValidationError):
+        build_scene_packets(
+            job_id="job-1",
+            scenes=[(0.0, 4.0)],
+            frame_results=[frame],
+            settings=_settings(scene_packet_disambiguation_label_threshold=1),
+            media_store=FakeMediaStore(),
+        )
+
+
+def test_multimodal_message_assembly_contains_evidence_links():
+    packet = build_scene_packets(
+        job_id="job-1",
+        scenes=[(0.0, 4.0)],
+        frame_results=[_frame(0, "00:00:01.000", ["person"], faces=1)],
+        settings=_settings(scene_packet_disambiguation_label_threshold=1),
+        media_store=FakeMediaStore(),
+    )[0]
+    prompt = build_scene_prompt(packet, policy=PromptPolicy(version="v2"))
+    messages = build_scene_multimodal_messages(prompt, packet)
+
+    assert len(messages) == 1
+    content = messages[0]["content"]
+    evidence_text_blocks = [
+        item
+        for item in content
+        if item.get("type") == "text" and str(item.get("text", "")).startswith("EVIDENCE ")
+    ]
+    image_blocks = [item for item in content if item.get("type") == "image"]
+
+    assert "Grounding contract:" in prompt
+    assert "Prompt profile: v2." in prompt
+    assert len(evidence_text_blocks) == len(packet.evidence_refs)
+    assert len(image_blocks) == len(packet.evidence_refs)
+
+
+def test_langgraph_state_carries_evidence_index(monkeypatch):
+    store = FakeMediaStore()
+    llm = RecordingLLM()
+
+    class _FakeCompiledGraph:
+        def __init__(self, nodes):
+            self._nodes = nodes
+
+        def invoke(self, state):
+            current = dict(state)
+            current.update(self._nodes["packets"](current))
+            assert current["evidence_index"]
+            current.update(self._nodes["narratives"](current))
+            current.update(self._nodes["synopsis"](current))
+            return current
+
+    class _FakeStateGraph:
+        def __init__(self, _state_type):
+            self._nodes = {}
+
+        def add_node(self, name, fn):
+            self._nodes[name] = fn
+
+        def add_edge(self, _source, _target):
+            return None
+
+        def compile(self):
+            return _FakeCompiledGraph(self._nodes)
+
+    monkeypatch.setattr("app.video_understanding.LANGGRAPH_AVAILABLE", True)
+    monkeypatch.setattr("app.video_understanding.StateGraph", _FakeStateGraph)
+    monkeypatch.setattr("app.video_understanding.START", "start")
+    monkeypatch.setattr("app.video_understanding.END", "end")
+    monkeypatch.setattr("app.video_understanding.build_scene_llm_client", lambda _settings: llm)
+
+    result = run_scene_understanding_pipeline(
+        job_id="job-1",
+        scenes=[(0.0, 4.0)],
+        frame_results=[_frame(0, "00:00:01.000", ["person"], faces=1)],
+        settings=_settings(),
+        media_store=store,
+    )
+
+    assert len(result["scene_narratives"]) == 1
+    assert result["video_synopsis"] is not None
+
+
+def test_scene_packet_validation_errors_fail_fast_with_langgraph(monkeypatch):
+    def _raise_validation_error(**_kwargs):
+        raise ScenePacketValidationError("invalid scene packet")
+
+    monkeypatch.setattr("app.video_understanding.LANGGRAPH_AVAILABLE", True)
+    monkeypatch.setattr("app.video_understanding._run_with_langgraph", _raise_validation_error)
+    monkeypatch.setattr("app.video_understanding.build_scene_llm_client", lambda _settings: RecordingLLM())
+
+    with pytest.raises(ScenePacketValidationError):
+        run_scene_understanding_pipeline(
+            job_id="job-1",
+            scenes=[(0.0, 4.0)],
+            frame_results=[_frame(0, "00:00:01.000", ["person"])],
+            settings=_settings(),
+            media_store=FakeMediaStore(),
+        )

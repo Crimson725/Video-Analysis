@@ -30,28 +30,84 @@ class PromptPolicy:
     version: str = "v1"
 
 
-def build_scene_prompt(scene_packet: ScenePacket, *, policy: PromptPolicy | None = None) -> str:
-    """Build JSON-first prompt for one-call-per-scene narrative generation."""
-    selected_policy = policy or PromptPolicy()
-    keyframe_note = "No keyframes attached."
-    if scene_packet.keyframes:
-        refs = ", ".join(k.uri for k in scene_packet.keyframes)
-        keyframe_note = f"Supporting keyframes: {refs}"
-    return (
-        "You are given one scene packet in JSON format. "
-        "Generate a faithful narrative for only this scene.\n\n"
-        f"Prompt profile: {selected_policy.version}.\n"
-        "Rules:\n"
-        "- Use only entities/events present in the packet.\n"
-        "- Return only valid JSON with no markdown or wrappers.\n"
-        "- Return JSON with keys: narrative_paragraph, key_moments, mentioned_entities, mentioned_events.\n"
-        "- key_moments must be a non-empty array of concise bullet strings.\n"
-        "- Keep narrative_paragraph short and chronological.\n\n"
-        f"{keyframe_note}\n\n"
+def _prompt_sections(scene_packet: ScenePacket, *, policy: PromptPolicy) -> dict[str, str]:
+    profile = policy.version.strip().lower() or "v1"
+    identity = (
+        "You are a scene-understanding assistant. "
+        "Generate one brief narrative for exactly one scene."
+    )
+    grounding = (
+        "Grounding contract:\n"
+        "- Use only provided scene packet JSON and multimodal evidence entries.\n"
+        "- Treat each evidence item as linked to exactly one frame JSON artifact.\n"
+        "- Do not invent entities/events absent from provided context.\n"
+        "- Prefer chronological ordering across frame timestamps."
+    )
+    task = (
+        "Task:\n"
+        "- Produce a concise natural-language paragraph summarizing scene progression.\n"
+        "- Keep details faithful to detected entities/events and image evidence."
+    )
+    output = (
+        "Output contract:\n"
+        "- Return only JSON with keys: narrative_paragraph, key_moments, mentioned_entities, mentioned_events.\n"
+        "- key_moments must be a non-empty array of concise strings.\n"
+        "- No markdown wrappers."
+    )
+    packet = (
+        f"Prompt profile: {profile}.\n"
+        "Scene packet JSON:\n"
         "```json\n"
         f"{scene_packet.packet_payload}"
         "```\n"
     )
+    return {
+        "identity": identity,
+        "grounding": grounding,
+        "task": task,
+        "output": output,
+        "packet": packet,
+    }
+
+
+def build_scene_prompt(scene_packet: ScenePacket, *, policy: PromptPolicy | None = None) -> str:
+    """Build sectioned prompt for one-call-per-scene narrative generation."""
+    selected_policy = policy or PromptPolicy()
+    sections = _prompt_sections(scene_packet, policy=selected_policy)
+    return "\n\n".join(
+        [
+            sections["identity"],
+            sections["grounding"],
+            sections["task"],
+            sections["output"],
+            sections["packet"],
+        ]
+    )
+
+
+def build_scene_multimodal_messages(prompt: str, scene_packet: ScenePacket) -> list[dict[str, Any]]:
+    """Build multimodal LangChain-compatible message payload with explicit evidence links."""
+    content: list[dict[str, Any]] = [
+        {"type": "text", "text": prompt},
+    ]
+    for ref in sorted(scene_packet.evidence_refs, key=lambda item: (item.frame_id, item.modality)):
+        content.append(
+            {
+                "type": "text",
+                "text": (
+                    f"EVIDENCE {ref.evidence_id}: frame_id={ref.frame_id}, "
+                    f"timestamp={ref.timestamp}, modality={ref.modality}, "
+                    f"json_artifact_key={ref.json_artifact_key}"
+                ),
+            }
+        )
+        content.append(
+            {
+                "type": "image",
+                "url": ref.image_uri,
+            }
+        )
+    return [{"role": "user", "content": content}]
 
 
 class FallbackSceneLLMClient:
@@ -144,8 +200,12 @@ class GeminiSceneLLMClient:
         raise ValueError("Gemini scene narrative response is not a JSON object")
 
     def generate_scene_narrative(self, prompt: str, scene_packet: ScenePacket) -> dict[str, Any]:
-        del scene_packet
-        response = self._scene_model.invoke(prompt)
+        messages = build_scene_multimodal_messages(prompt, scene_packet)
+        try:
+            response = self._scene_model.invoke(messages)
+        except Exception as exc:  # pragma: no cover - depends on provider runtime behavior
+            logger.warning("Multimodal scene invoke failed; retrying text-only prompt: %s", exc)
+            response = self._scene_model.invoke(prompt)
         text = self._to_text(response).strip()
         return self._parse_scene_json(text)
 

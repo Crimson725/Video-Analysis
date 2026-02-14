@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -35,6 +35,39 @@ class KeyframeRef:
     uri: str
 
 
+SceneEvidenceModality = Literal[
+    "original",
+    "object_detection",
+    "semantic_segmentation",
+    "face_recognition",
+]
+
+
+@dataclass(slots=True)
+class SceneFrameContext:
+    """Frame-level context carried into multimodal scene understanding."""
+
+    frame_id: int
+    timestamp: str
+    json_artifact_key: str
+    has_faces: bool
+    modality_image_keys: dict[SceneEvidenceModality, str]
+    analysis_summary: dict[str, Any]
+
+
+@dataclass(slots=True)
+class SceneEvidenceRef:
+    """Deterministic link between one image artifact and one frame JSON payload."""
+
+    evidence_id: str
+    scene_id: int
+    frame_id: int
+    timestamp: str
+    modality: SceneEvidenceModality
+    image_uri: str
+    json_artifact_key: str
+
+
 @dataclass(slots=True)
 class ScenePacket:
     """JSON-first scene packet used as narrative model input."""
@@ -49,6 +82,9 @@ class ScenePacket:
     entities: list[EntityCount]
     events: list[EventCount]
     keyframes: list[KeyframeRef]
+    scene_frames: list[SceneFrameContext]
+    evidence_refs: list[SceneEvidenceRef]
+    evidence_index: dict[str, dict[str, Any]]
     corpus_entities: list[dict[str, Any]]
     corpus_events: list[dict[str, Any]]
     corpus_relations: list[dict[str, Any]]

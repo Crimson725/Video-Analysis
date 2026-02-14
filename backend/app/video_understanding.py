@@ -8,7 +8,12 @@ import operator
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 
-from app.scene_packet_builder import build_scene_packets, serialize_scene_packet_json
+from app.scene_packet_builder import (
+    ScenePacketValidationError,
+    build_scene_packets,
+    serialize_scene_packet_json,
+    validate_scene_packet_contract,
+)
 from app.scene_runtime_contracts import SceneLLMClient, SceneNarrative, ScenePacket
 from app.scene_worker_runtime import (
     FallbackSceneLLMClient,
@@ -95,6 +100,7 @@ def _generate_narratives(
     narratives: list[SceneNarrative] = []
     prompt_policy = _prompt_policy(settings)
     for packet in scene_packets:
+        validate_scene_packet_contract(packet)
         parsed = generate_scene_narrative_with_retries(
             scene_packet=packet,
             llm_client=llm_client,
@@ -208,6 +214,7 @@ class WorkflowState(TypedDict):
     scenes: list[tuple[float, float]]
     frame_results: list[dict[str, Any]]
     scene_packets: Annotated[list[ScenePacket], operator.add]
+    evidence_index: dict[str, dict[str, Any]]
     scene_narratives: Annotated[list[SceneNarrative], operator.add]
     synopsis: str
 
@@ -233,7 +240,13 @@ def _run_with_langgraph(
             settings=settings,
             media_store=media_store,
         )
-        return {"scene_packets": packets}
+        evidence_index: dict[str, dict[str, Any]] = {}
+        for packet in packets:
+            evidence_index.update(packet.evidence_index)
+        return {
+            "scene_packets": packets,
+            "evidence_index": evidence_index,
+        }
 
     def narratives_node(state: WorkflowState) -> dict[str, Any]:
         narratives = _generate_narratives(
@@ -273,6 +286,7 @@ def _run_with_langgraph(
             "scenes": scenes,
             "frame_results": frame_results,
             "scene_packets": [],
+            "evidence_index": {},
             "scene_narratives": [],
             "synopsis": "",
         }
@@ -326,6 +340,8 @@ def run_scene_understanding_pipeline(
                 media_store=media_store,
                 llm_client=llm_client,
             )
+        except ScenePacketValidationError:
+            raise
         except Exception as exc:
             logger.warning("LangGraph execution failed; falling back to sequential run: %s", exc)
 

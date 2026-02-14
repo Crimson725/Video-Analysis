@@ -53,6 +53,15 @@ LLM involvement is constrained to stage 3 (scene understanding). When scene unde
 - `scene_narratives: []`
 - `video_synopsis: null`
 
+### Scene Understanding Multimodal Packet
+
+When `ENABLE_SCENE_UNDERSTANDING_PIPELINE=true`, scene understanding now builds a multimodal packet per scene with deterministic image↔JSON linkage:
+
+- Includes all scene frame artifacts for `original`, `detection`, and `segmentation`.
+- Includes `face` artifacts only for frames where `analysis.face_recognition` is non-empty.
+- Links every image artifact to exactly one frame JSON artifact via a stable `evidence_id` entry in packet metadata.
+- Uses prompt-policy versioning (`SCENE_AI_PROMPT_VERSION`) to assemble extensible scene-understanding system instructions while keeping output narrative-first.
+
 ## Corpus Retrieval Pipeline Flags
 
 These flags are enabled by default and can be overridden per environment:
