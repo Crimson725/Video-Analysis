@@ -1,5 +1,6 @@
 """Tests for feature-flagged face identity flow in app.main.process_video."""
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -167,3 +168,30 @@ def test_process_video_skips_face_identity_pipeline_when_disabled():
     assert job["result"]["video_face_identities"] is None
     mock_extract_tracking_frames.assert_not_called()
     mock_identity.assert_not_called()
+
+
+def test_startup_validation_logs_face_identity_runtime_when_enabled(caplog):
+    with (
+        patch(
+            "app.main.SETTINGS",
+            SimpleNamespace(
+                missing_r2_fields=lambda: [],
+                enable_scene_understanding_pipeline=False,
+                enable_corpus_pipeline=False,
+                enable_corpus_ingest=False,
+                enable_face_identity_pipeline=True,
+                face_identity_model_id="edgeface_s_gamma_05",
+                face_identity_backend="auto",
+                missing_face_identity_fields=lambda: [],
+            ),
+        ),
+        patch("app.main.edgeface_runtime_note", return_value="edgeface-runtime-note"),
+        patch("app.main._queue_mode_enabled", return_value=False),
+    ):
+        from app.main import _startup_validate_settings
+
+        with caplog.at_level(logging.INFO):
+            _startup_validate_settings()
+
+    assert "Face identity runtime configured model_profile=edgeface_s_gamma_05 backend_preference=auto" in caplog.text
+    assert "edgeface-runtime-note" in caplog.text

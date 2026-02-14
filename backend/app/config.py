@@ -7,6 +7,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+DEFAULT_FACE_IDENTITY_MODEL_ID = "edgeface_s_gamma_05"
+_FACE_IDENTITY_MODEL_ID_ALIASES = {
+    # Legacy alias kept for backward compatibility with prior rollout docs/config.
+    "edgeface-arcface-torch": DEFAULT_FACE_IDENTITY_MODEL_ID,
+}
+SUPPORTED_FACE_IDENTITY_MODEL_IDS = frozenset(
+    {
+        DEFAULT_FACE_IDENTITY_MODEL_ID,
+        "edgeface_xs_gamma_06",
+    }
+)
+
 
 def _read_int(name: str, default: int, minimum: int) -> int:
     raw = os.getenv(name)
@@ -50,6 +62,27 @@ def _read_choice(name: str, default: str, allowed: set[str]) -> str:
     if normalized in allowed:
         return normalized
     return default
+
+
+def normalize_face_identity_model_id(raw: str | None) -> str:
+    """Normalize and validate configured EdgeFace profile identifier."""
+    normalized = (raw or "").strip().lower()
+    if not normalized:
+        return DEFAULT_FACE_IDENTITY_MODEL_ID
+
+    resolved = _FACE_IDENTITY_MODEL_ID_ALIASES.get(normalized, normalized)
+    if resolved in SUPPORTED_FACE_IDENTITY_MODEL_IDS:
+        return resolved
+
+    supported = ", ".join(sorted(SUPPORTED_FACE_IDENTITY_MODEL_IDS))
+    aliases = ", ".join(sorted(_FACE_IDENTITY_MODEL_ID_ALIASES))
+    message = (
+        f"Unsupported FACE_IDENTITY_MODEL_ID='{normalized}'. "
+        f"Supported profiles: {supported}."
+    )
+    if aliases:
+        message += f" Legacy aliases: {aliases}."
+    raise ValueError(message)
 
 
 def _load_dotenv_file(path: Path) -> None:
@@ -145,6 +178,18 @@ class Settings:
             backend_root = Path(__file__).resolve().parent.parent
             default_dotenvs = (backend_root / ".env", backend_root / ".env.local")
             _load_dotenv_files(dotenv_files or default_dotenvs)
+
+        enable_face_identity_pipeline = _read_bool("ENABLE_FACE_IDENTITY_PIPELINE", default=True)
+        raw_face_identity_model_id = os.getenv("FACE_IDENTITY_MODEL_ID")
+        if enable_face_identity_pipeline:
+            face_identity_model_id = normalize_face_identity_model_id(raw_face_identity_model_id)
+        else:
+            # Keep startup resilient when face identity mode is off.
+            try:
+                face_identity_model_id = normalize_face_identity_model_id(raw_face_identity_model_id)
+            except ValueError:
+                face_identity_model_id = DEFAULT_FACE_IDENTITY_MODEL_ID
+
         return cls(
             r2_account_id=os.getenv("R2_ACCOUNT_ID", "").strip(),
             r2_bucket=os.getenv("R2_BUCKET", "").strip(),
@@ -236,7 +281,7 @@ class Settings:
             embedding_model_id=os.getenv("EMBEDDING_MODEL_ID", "gemini-embedding-001").strip(),
             embedding_model_version=os.getenv("EMBEDDING_MODEL_VERSION", "v1").strip(),
             embedding_dimension=_read_int("EMBEDDING_DIMENSION", default=16, minimum=1),
-            enable_face_identity_pipeline=_read_bool("ENABLE_FACE_IDENTITY_PIPELINE", default=False),
+            enable_face_identity_pipeline=enable_face_identity_pipeline,
             face_identity_backend=_read_choice(
                 "FACE_IDENTITY_BACKEND",
                 default="auto",
@@ -250,17 +295,17 @@ class Settings:
             ),
             face_identity_scene_similarity_threshold=_read_float(
                 "FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD",
-                default=0.66,
+                default=0.68,
                 minimum=0.0,
             ),
             face_identity_video_similarity_threshold=_read_float(
                 "FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD",
-                default=0.71,
+                default=0.74,
                 minimum=0.0,
             ),
             face_identity_ambiguity_margin=_read_float(
                 "FACE_IDENTITY_AMBIGUITY_MARGIN",
-                default=0.04,
+                default=0.03,
                 minimum=0.0,
             ),
             face_identity_embedding_dimension=_read_int(
@@ -268,10 +313,7 @@ class Settings:
                 default=512,
                 minimum=16,
             ),
-            face_identity_model_id=(
-                os.getenv("FACE_IDENTITY_MODEL_ID", "edgeface-arcface-torch").strip()
-                or "edgeface-arcface-torch"
-            ),
+            face_identity_model_id=face_identity_model_id,
             face_identity_weights_path=os.getenv("FACE_IDENTITY_WEIGHTS_PATH", "").strip(),
         )
 
@@ -311,6 +353,11 @@ class Settings:
             return missing
         if not self.face_identity_model_id.strip():
             missing.append("FACE_IDENTITY_MODEL_ID")
+        else:
+            try:
+                normalize_face_identity_model_id(self.face_identity_model_id)
+            except ValueError:
+                missing.append("FACE_IDENTITY_MODEL_ID")
         if self.face_identity_sample_fps < 1:
             missing.append("FACE_IDENTITY_SAMPLE_FPS")
         if self.face_identity_embedding_dimension < 16:

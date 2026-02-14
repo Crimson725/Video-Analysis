@@ -13,7 +13,14 @@ import numpy as np
 import torch
 from facenet_pytorch import InceptionResnetV1
 
+from app.config import DEFAULT_FACE_IDENTITY_MODEL_ID
+
 logger = logging.getLogger(__name__)
+
+_DEFAULT_PROFILE_WEIGHTS_BY_MODEL_ID = {
+    DEFAULT_FACE_IDENTITY_MODEL_ID: "edgeface_s_gamma_05.pt",
+    "edgeface_xs_gamma_06": "edgeface_xs_gamma_06.pt",
+}
 
 
 def _normalized_vector(values: np.ndarray) -> np.ndarray:
@@ -100,22 +107,80 @@ class EdgeFaceTorchEmbedder:
         self._model: InceptionResnetV1 | None = None
         self._load_model(weights_path)
 
+    def _resolve_weights_candidate(self, weights_path: str) -> Path | None:
+        """Resolve explicit or profile-default checkpoint path if available."""
+        if weights_path:
+            return Path(weights_path)
+
+        profile_filename = _DEFAULT_PROFILE_WEIGHTS_BY_MODEL_ID.get(self.model_id)
+        if not profile_filename:
+            return None
+
+        backend_root = Path(__file__).resolve().parent.parent
+        default_candidate = backend_root / "models" / profile_filename
+        if default_candidate.is_file():
+            return default_candidate
+        return None
+
     def _load_model(self, weights_path: str) -> None:
         model = InceptionResnetV1(classify=False, pretrained=None).to(self.device).eval()
-        candidate = Path(weights_path) if weights_path else None
+        candidate = self._resolve_weights_candidate(weights_path)
+        loaded = False
         if candidate and candidate.is_file():
             try:
                 state = torch.load(candidate, map_location=self.device)
+                if isinstance(state, dict) and "state_dict" in state and isinstance(state["state_dict"], dict):
+                    state = state["state_dict"]
                 if isinstance(state, dict):
-                    model.load_state_dict(state, strict=False)
-                    logger.info(
-                        "Loaded face identity weights from %s using model_id=%s",
+                    filtered_state = {
+                        key: value
+                        for key, value in state.items()
+                        if isinstance(value, torch.Tensor)
+                    }
+                    model_keys = set(model.state_dict().keys())
+                    overlap = model_keys.intersection(filtered_state.keys())
+                    if not overlap:
+                        logger.warning(
+                            "Face identity weights at %s are incompatible with current embedder architecture; "
+                            "using deterministic fallback",
+                            candidate,
+                        )
+                    else:
+                        load_result = model.load_state_dict(filtered_state, strict=False)
+                        loaded = True
+                        logger.info(
+                            "Loaded face identity weights from %s using model_id=%s",
+                            candidate,
+                            self.model_id,
+                        )
+                        if load_result.missing_keys or load_result.unexpected_keys:
+                            logger.warning(
+                                "Face identity weights at %s loaded with partial key coverage "
+                                "(missing=%s unexpected=%s)",
+                                candidate,
+                                len(load_result.missing_keys),
+                                len(load_result.unexpected_keys),
+                            )
+                else:
+                    logger.warning(
+                        "Face identity weights at %s are not a state dict; using deterministic fallback",
                         candidate,
-                        self.model_id,
                     )
             except Exception as exc:  # pragma: no cover - depends on runtime weights
                 logger.warning("Failed loading face identity weights from %s: %s", candidate, exc)
-        self._model = model
+        elif candidate:
+            logger.warning(
+                "Configured face identity weights path does not exist for model_id=%s path=%s",
+                self.model_id,
+                candidate,
+            )
+        else:
+            logger.warning(
+                "No face identity weights found for model_id=%s; deterministic fallback embeddings will be used",
+                self.model_id,
+            )
+
+        self._model = model if loaded else None
 
     def _fallback_embedding(self, crop_rgb: np.ndarray) -> np.ndarray:
         digest = hashlib.sha1(crop_rgb.tobytes()).digest()

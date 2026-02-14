@@ -244,29 +244,36 @@ The ML stack is **PyTorch-first** for in-repo pipeline execution and does not re
 
 ## EdgeFace rollout and rollback
 
-Continuous face identity is feature-gated and runs on a PyTorch-only EdgeFace path.
+Continuous face identity runs on a PyTorch-only EdgeFace path and is enabled by default.
 
-Enable EdgeFace identity mode:
+Default behavior (can be set explicitly):
 
 ```bash
 ENABLE_FACE_IDENTITY_PIPELINE=true
-FACE_IDENTITY_MODEL_ID=edgeface-arcface-torch
+FACE_IDENTITY_MODEL_ID=edgeface_s_gamma_05
 FACE_IDENTITY_BACKEND=auto
 FACE_IDENTITY_WEIGHTS_PATH=/absolute/path/to/edgeface_weights.pt
 ```
 
+Supported profile values:
+
+- `edgeface_s_gamma_05` (default)
+- `edgeface_xs_gamma_06` (lower-cost alternative)
+
+Legacy alias `edgeface-arcface-torch` is accepted and normalized to `edgeface_s_gamma_05`.
+
 Optional tuning defaults (already applied when unset):
 
 ```bash
-FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD=0.66
-FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD=0.71
-FACE_IDENTITY_AMBIGUITY_MARGIN=0.04
+FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD=0.68
+FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD=0.74
+FACE_IDENTITY_AMBIGUITY_MARGIN=0.03
 ```
 
 Rollback controls:
 
 - Disable face identity entirely with `ENABLE_FACE_IDENTITY_PIPELINE=false`.
-- Keep identity mode on but swap to alternate weights by updating `FACE_IDENTITY_WEIGHTS_PATH`.
+- Keep identity mode on but swap to alternate profile via `FACE_IDENTITY_MODEL_ID` and/or alternate weights via `FACE_IDENTITY_WEIGHTS_PATH`.
 - Force deterministic backend selection with `FACE_IDENTITY_BACKEND=cuda|mps|cpu`.
 
 ## GPU

@@ -982,6 +982,12 @@ def run_face_identity_pipeline(
 ) -> dict[str, Any]:
     """Run scene-local and video-global face identity aggregation."""
     device = select_torch_device(settings.face_identity_backend)
+    logger.info(
+        "Face identity pipeline starting model_profile=%s backend_preference=%s resolved_backend=%s",
+        settings.face_identity_model_id,
+        settings.face_identity_backend,
+        device.type,
+    )
     embedder = EdgeFaceTorchEmbedder(
         device=device,
         model_id=settings.face_identity_model_id,

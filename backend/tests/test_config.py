@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from app.config import Settings
 
 
@@ -77,7 +79,7 @@ class TestSettings:
         monkeypatch.setenv("FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD", "0.84")
         monkeypatch.setenv("FACE_IDENTITY_AMBIGUITY_MARGIN", "0.02")
         monkeypatch.setenv("FACE_IDENTITY_EMBEDDING_DIMENSION", "256")
-        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "edgeface-arcface-torch")
+        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "edgeface_xs_gamma_06")
         monkeypatch.setenv("FACE_IDENTITY_WEIGHTS_PATH", "/tmp/edgeface.pt")
 
         settings = Settings.from_env(autoload_dotenv=False)
@@ -90,8 +92,15 @@ class TestSettings:
         assert settings.face_identity_video_similarity_threshold == 0.84
         assert settings.face_identity_ambiguity_margin == 0.02
         assert settings.face_identity_embedding_dimension == 256
-        assert settings.face_identity_model_id == "edgeface-arcface-torch"
+        assert settings.face_identity_model_id == "edgeface_xs_gamma_06"
         assert settings.face_identity_weights_path == "/tmp/edgeface.pt"
+
+    def test_face_identity_pipeline_enabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("ENABLE_FACE_IDENTITY_PIPELINE", raising=False)
+
+        settings = Settings.from_env(autoload_dotenv=False)
+
+        assert settings.enable_face_identity_pipeline is True
 
     def test_face_identity_defaults_use_edgeface_profile(self, monkeypatch):
         monkeypatch.delenv("FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD", raising=False)
@@ -101,10 +110,32 @@ class TestSettings:
 
         settings = Settings.from_env(autoload_dotenv=False)
 
-        assert settings.face_identity_scene_similarity_threshold == 0.66
-        assert settings.face_identity_video_similarity_threshold == 0.71
-        assert settings.face_identity_ambiguity_margin == 0.04
-        assert settings.face_identity_model_id == "edgeface-arcface-torch"
+        assert settings.face_identity_scene_similarity_threshold == 0.68
+        assert settings.face_identity_video_similarity_threshold == 0.74
+        assert settings.face_identity_ambiguity_margin == 0.03
+        assert settings.face_identity_model_id == "edgeface_s_gamma_05"
+
+    def test_face_identity_legacy_alias_normalizes_to_default_profile(self, monkeypatch):
+        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "edgeface-arcface-torch")
+
+        settings = Settings.from_env(autoload_dotenv=False)
+
+        assert settings.face_identity_model_id == "edgeface_s_gamma_05"
+
+    def test_invalid_face_identity_model_id_fails_fast(self, monkeypatch):
+        monkeypatch.setenv("ENABLE_FACE_IDENTITY_PIPELINE", "true")
+        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "not-a-real-profile")
+
+        with pytest.raises(ValueError, match="Unsupported FACE_IDENTITY_MODEL_ID"):
+            Settings.from_env(autoload_dotenv=False)
+
+    def test_invalid_face_identity_model_id_is_ignored_when_pipeline_disabled(self, monkeypatch):
+        monkeypatch.setenv("ENABLE_FACE_IDENTITY_PIPELINE", "false")
+        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "not-a-real-profile")
+
+        settings = Settings.from_env(autoload_dotenv=False)
+
+        assert settings.face_identity_model_id == "edgeface_s_gamma_05"
 
     def test_missing_llm_fields_only_when_pipeline_enabled(self, monkeypatch):
         monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")
@@ -127,7 +158,7 @@ class TestSettings:
         assert settings.missing_embedding_fields() == []
 
     def test_missing_face_identity_fields_only_when_enabled(self, monkeypatch):
-        monkeypatch.delenv("ENABLE_FACE_IDENTITY_PIPELINE", raising=False)
+        monkeypatch.setenv("ENABLE_FACE_IDENTITY_PIPELINE", "false")
         settings = Settings.from_env(autoload_dotenv=False)
         assert settings.missing_face_identity_fields() == []
 

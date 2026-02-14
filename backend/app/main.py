@@ -93,6 +93,11 @@ def _startup_validate_settings() -> None:
                 "Continuous identity tracking may fail at runtime.",
                 ", ".join(missing_face_identity),
             )
+        logger.info(
+            "Face identity runtime configured model_profile=%s backend_preference=%s",
+            SETTINGS.face_identity_model_id,
+            SETTINGS.face_identity_backend,
+        )
         logger.info("%s", edgeface_runtime_note())
     if SETTINGS.enable_corpus_ingest and not SETTINGS.enable_corpus_pipeline:
         logger.warning(

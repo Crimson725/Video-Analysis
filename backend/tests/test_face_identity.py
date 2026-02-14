@@ -1,8 +1,10 @@
 """Unit tests for scene/video face identity aggregation utilities."""
 
 import numpy as np
+import torch
 
 from app.face_identity import (
+    EdgeFaceTorchEmbedder,
     FaceObservation,
     aggregate_scene_identities,
     stitch_video_identities,
@@ -141,3 +143,42 @@ def test_identity_continuity_survives_occlusion_and_scene_cut():
     first_video_identity = scene_to_video["scene_0_person_1"]["video_person_id"]
     cut_video_identity = scene_to_video["scene_1_person_1"]["video_person_id"]
     assert first_video_identity == cut_video_identity
+
+
+def test_embedder_uses_deterministic_fallback_when_weights_missing(tmp_path):
+    missing_weights = tmp_path / "missing_edgeface_weights.pt"
+    embedder = EdgeFaceTorchEmbedder(
+        device=torch.device("cpu"),
+        model_id="edgeface_s_gamma_05",
+        embedding_dimension=64,
+        weights_path=str(missing_weights),
+    )
+
+    image = np.full((48, 48, 3), fill_value=127, dtype=np.uint8)
+    bbox = [8, 8, 32, 32]
+    first = embedder.embed(image, bbox)
+    second = embedder.embed(image, bbox)
+
+    assert embedder._model is None
+    assert first.shape == (64,)
+    assert np.allclose(first, second)
+
+
+def test_embedder_falls_back_when_checkpoint_is_incompatible(tmp_path):
+    incompatible_weights = tmp_path / "incompatible_edgeface_weights.pt"
+    torch.save({"state_dict": {"not_a_real_weight": torch.ones(1)}}, incompatible_weights)
+    embedder = EdgeFaceTorchEmbedder(
+        device=torch.device("cpu"),
+        model_id="edgeface_s_gamma_05",
+        embedding_dimension=32,
+        weights_path=str(incompatible_weights),
+    )
+
+    image = np.full((32, 32, 3), fill_value=96, dtype=np.uint8)
+    bbox = [4, 4, 24, 24]
+    first = embedder.embed(image, bbox)
+    second = embedder.embed(image, bbox)
+
+    assert embedder._model is None
+    assert first.shape == (32,)
+    assert np.allclose(first, second)

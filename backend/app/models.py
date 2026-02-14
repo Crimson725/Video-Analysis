@@ -8,6 +8,8 @@ import torch
 from facenet_pytorch import MTCNN
 from ultralytics import YOLO
 
+from app.config import normalize_face_identity_model_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,10 +53,12 @@ class ModelLoader:
 
     def __init__(self) -> None:
         preferred_backend = os.getenv("FACE_IDENTITY_BACKEND", "auto")
+        model_id = normalize_face_identity_model_id(os.getenv("FACE_IDENTITY_MODEL_ID"))
         device = select_torch_device(preferred_backend)
         self.device = device
         logger.info(
-            "EdgeFace device selection backend=%s resolved_device=%s",
+            "EdgeFace device selection model_profile=%s backend=%s resolved_device=%s",
+            model_id,
             preferred_backend,
             device.type,
         )
