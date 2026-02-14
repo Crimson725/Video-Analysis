@@ -1,4 +1,4 @@
-"""Tests for corpus pipeline integration in app.main.process_video."""
+"""Tests for retrieval corpus pipeline integration in app.main.process_video."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -39,7 +39,7 @@ def _frame_payload(job_id: str) -> dict:
     }
 
 
-def test_process_video_runs_corpus_build_and_ingest_when_enabled():
+def test_process_video_runs_corpus_build_when_enabled():
     job_id = jobs.create_job()
     call_order: list[str] = []
 
@@ -55,9 +55,6 @@ def test_process_video_runs_corpus_build_and_ingest_when_enabled():
         patch("app.main.analysis.analyze_frame") as mock_analyze_frame,
         patch("app.main.video_understanding.run_scene_understanding_pipeline") as mock_scene_pipeline,
         patch("app.main.corpus.build") as mock_corpus_build,
-        patch("app.main.corpus_ingest.build_graph_adapter") as mock_graph_adapter_builder,
-        patch("app.main.corpus_ingest.build_vector_adapter") as mock_vector_adapter_builder,
-        patch("app.main.corpus_ingest.ingest_corpus") as mock_ingest,
         patch(
             "app.main.SETTINGS",
             SimpleNamespace(
@@ -90,13 +87,9 @@ def test_process_video_runs_corpus_build_and_ingest_when_enabled():
         mock_corpus_build.side_effect = lambda **kwargs: (
             call_order.append("corpus"),
             {
-                "graph": {"job_id": job_id, "nodes": [], "edges": [], "source_facts": [], "derived_claims": []},
                 "retrieval": {"job_id": job_id, "chunks": []},
-                "embeddings": {"job_id": job_id, "dimension": 8, "embeddings": []},
                 "artifacts": {
-                    "graph_bundle": f"jobs/{job_id}/corpus/graph/bundle.json",
                     "retrieval_bundle": f"jobs/{job_id}/corpus/rag/bundle.json",
-                    "embeddings_bundle": f"jobs/{job_id}/corpus/embeddings/bundle.json",
                 },
             },
         )[1]
@@ -107,10 +100,6 @@ def test_process_video_runs_corpus_build_and_ingest_when_enabled():
         }
         mock_scene_pipeline.return_value = mock_scene_outputs
 
-        mock_graph_adapter_builder.return_value = MagicMock()
-        mock_vector_adapter_builder.return_value = MagicMock()
-        mock_ingest.return_value = {"graph": {"nodes": 0}, "vector": {"chunks": 0}}
-
         from app.main import process_video
 
         process_video(job_id, "/tmp/nonexistent.mp4", "mp4")
@@ -119,7 +108,6 @@ def test_process_video_runs_corpus_build_and_ingest_when_enabled():
     assert job is not None
     assert job["status"] == "completed"
     assert job["result"]["corpus"] is not None
-    assert job["result"]["corpus"]["ingest"] == {"graph": {"nodes": 0}, "vector": {"chunks": 0}}
     assert call_order == ["cv", "scene_llm", "corpus"]
 
     assert mock_corpus_build.call_count == 1
@@ -162,13 +150,9 @@ def test_process_video_passes_default_scene_outputs_to_corpus_when_scene_stage_d
         mock_model_loader.get.return_value = MagicMock()
 
         mock_corpus_build.return_value = {
-            "graph": {"job_id": job_id, "nodes": [], "edges": [], "source_facts": [], "derived_claims": []},
             "retrieval": {"job_id": job_id, "chunks": []},
-            "embeddings": {"job_id": job_id, "dimension": 8, "embeddings": []},
             "artifacts": {
-                "graph_bundle": f"jobs/{job_id}/corpus/graph/bundle.json",
                 "retrieval_bundle": f"jobs/{job_id}/corpus/rag/bundle.json",
-                "embeddings_bundle": f"jobs/{job_id}/corpus/embeddings/bundle.json",
             },
         }
 

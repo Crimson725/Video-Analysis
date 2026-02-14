@@ -78,9 +78,7 @@ def test_materialize_signed_result_urls_signs_nested_artifacts():
         },
         "corpus": {
             "artifacts": {
-                "graph_bundle": "jobs/job-8/corpus/graph/bundle.json",
                 "retrieval_bundle": "jobs/job-8/corpus/rag/bundle.json",
-                "embeddings_bundle": "jobs/job-8/corpus/embeddings/bundle.json",
             }
         },
     }
@@ -93,9 +91,7 @@ def test_materialize_signed_result_urls_signs_nested_artifacts():
     assert scene["corpus"]["artifacts"]["graph_bundle"].startswith("https://signed.example/jobs/")
     assert scene["corpus"]["artifacts"]["retrieval_bundle"].startswith("https://signed.example/jobs/")
     assert result["video_synopsis"]["artifact"].startswith("https://signed.example/jobs/")
-    assert result["corpus"]["artifacts"]["graph_bundle"].startswith("https://signed.example/jobs/")
     assert result["corpus"]["artifacts"]["retrieval_bundle"].startswith("https://signed.example/jobs/")
-    assert result["corpus"]["artifacts"]["embeddings_bundle"].startswith("https://signed.example/jobs/")
 
 
 def test_materialize_signed_result_urls_defaults_scene_fields_when_missing():

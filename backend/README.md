@@ -46,14 +46,14 @@ uv run python -m app.worker
 3. scene-understanding stage:
    - `SCENE_AI_EXECUTION_MODE=in_process`: execute scene-understanding in API process
    - `SCENE_AI_EXECUTION_MODE=queue`: enqueue Postgres task and execute out-of-process in worker
-4. corpus/KG/retrieval/embeddings build when `ENABLE_CORPUS_PIPELINE=true` after scene stage success (or explicit fallback policy)
+4. corpus retrieval bundle build when `ENABLE_CORPUS_PIPELINE=true` after scene stage success (or explicit fallback policy)
 
 LLM involvement is constrained to stage 3 (scene understanding). When scene understanding is disabled, results keep a stable shape with:
 
 - `scene_narratives: []`
 - `video_synopsis: null`
 
-## Corpus/KG/RAG Pipeline Flags
+## Corpus Retrieval Pipeline Flags
 
 These flags are enabled by default and can be overridden per environment:
 
@@ -71,19 +71,8 @@ These flags are enabled by default and can be overridden per environment:
 - `SCENE_AI_RUNTIME_VERSION` - worker runtime policy version metadata (`v1` default)
 - `SCENE_MODEL_ID` - Gemini model for scene narrative generation (default `gemini-3-flash-preview`)
 - `SYNOPSIS_MODEL_ID` - Gemini model for video synopsis generation (default `gemini-3-flash-preview`)
-- `ENABLE_CORPUS_PIPELINE` - build graph/retrieval/embeddings bundles after scene understanding (`true` default)
-- `ENABLE_CORPUS_INGEST` - ingest bundles into configured graph/vector adapters (`true` default)
-- `GRAPH_BACKEND` - `neo4j` or `memory`
-- `VECTOR_BACKEND` - `pgvector` or `memory`
-- `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`
-- `PGVECTOR_DSN`
-- `EMBEDDING_MODEL_ID` (default `gemini-embedding-001`)
-- `EMBEDDING_MODEL_VERSION` (default `v1`)
-- `EMBEDDING_DIMENSION` (default `16`)
-
-When using Gemini embeddings (default), `GOOGLE_API_KEY` is required for corpus embedding generation.
-
-Local stack setup guide: `/Users/crimson2049/Video Analysis/backend/docs/local-corpus-stack.md`
+- `ENABLE_CORPUS_PIPELINE` - build retrieval bundle after scene understanding (`true` default)
+- `ENABLE_CORPUS_INGEST` - currently ignored while legacy graph/embedding ingest is removed
 
 ## Queue Mode Local Workflow
 
@@ -171,28 +160,6 @@ Behavior:
 - Skips when required R2 credentials/config are missing.
 - Writes JSON artifacts to R2, reads them back, and validates payload integrity.
 - Always deletes test-created objects in teardown/finally, including failure-path scenarios.
-
-## No-LLM Corpus E2E Integration Test
-
-This integration test validates one full path: real CV `process_video` run, corpus artifact generation, Neo4j + pgvector ingest verification, and cleanup policy assertion with scene/synopsis LLM generation disabled.
-
-```bash
-cd backend
-ENABLE_SCENE_UNDERSTANDING_PIPELINE=false \
-ENABLE_CORPUS_PIPELINE=true \
-ENABLE_CORPUS_INGEST=true \
-GOOGLE_API_KEY="<your-gemini-key>" \
-uv run pytest tests/integration/test_no_llm_corpus_e2e_integration.py -m integration -vv
-```
-
-Notes:
-
-- Works with either Docker or Podman as long as local Neo4j + pgvector services are reachable.
-- Corpus embedding generation uses Gemini embeddings by default and requires `GOOGLE_API_KEY`.
-- The integration fixture attempts to start local Neo4j + pgvector automatically (`podman compose` first, Docker fallback) before skipping.
-- The suite uses isolated default DB endpoints (`bolt://127.0.0.1:47687`, `postgresql://video_analysis:video_analysis@127.0.0.1:45433/video_analysis`) to avoid conflicts with existing local DB services.
-- The suite is pinned to the canonical real test video at `/Users/crimson2049/Video Analysis/Test Videos/WhatCarCanYouGetForAGrand.mp4` and does not use fake MP4 fixtures.
-- Default `pytest` runs remain unchanged (`-m 'not integration'`), but `-m integration` runs now include this test.
 
 ## Video Synopsis End-to-End Integration Test (Live Gemini)
 

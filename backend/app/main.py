@@ -13,7 +13,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import analysis, cleanup, corpus, corpus_ingest, jobs, scene, video_understanding
+from app import analysis, cleanup, corpus, jobs, scene, video_understanding
 from app.scene_ai_worker_contracts import SceneWorkerTaskInput
 from app.scene_task_queue import PostgresSceneTaskQueue, build_postgres_scene_task_queue
 from app.config import Settings
@@ -77,14 +77,6 @@ def _startup_validate_settings() -> None:
                 "Gemini client may be unavailable and runtime will use fallback generation.",
                 ", ".join(missing_llm),
             )
-    if SETTINGS.enable_corpus_pipeline:
-        missing_embedding = SETTINGS.missing_embedding_fields()
-        if missing_embedding:
-            logger.warning(
-                "Corpus pipeline enabled with missing embedding settings: %s. "
-                "Corpus embedding generation may fail at runtime.",
-                ", ".join(missing_embedding),
-            )
     if bool(getattr(SETTINGS, "enable_face_identity_pipeline", False)):
         missing_face_identity = SETTINGS.missing_face_identity_fields()
         if missing_face_identity:
@@ -103,6 +95,11 @@ def _startup_validate_settings() -> None:
         logger.warning(
             "Corpus ingest is enabled while corpus build is disabled. "
             "Set ENABLE_CORPUS_PIPELINE=true to produce ingestable artifacts."
+        )
+    if SETTINGS.enable_corpus_ingest:
+        logger.warning(
+            "ENABLE_CORPUS_INGEST is currently ignored. "
+            "Legacy graph/embedding ingest support has been removed."
         )
     if _queue_mode_enabled():
         if not SETTINGS.scene_ai_queue_dsn:
@@ -352,23 +349,18 @@ def _materialize_corpus_payload(raw_corpus: Any, media_store: MediaStore) -> dic
     if not isinstance(raw_corpus, dict):
         return None
     raw_corpus_artifacts = raw_corpus.get("artifacts", {})
-    return {
-        **raw_corpus,
+    materialized: dict[str, Any] = {
+        "retrieval": raw_corpus.get("retrieval"),
         "artifacts": {
-            "graph_bundle": _to_signed_url_if_needed(
-                raw_corpus_artifacts.get("graph_bundle"),
-                media_store,
-            ),
             "retrieval_bundle": _to_signed_url_if_needed(
                 raw_corpus_artifacts.get("retrieval_bundle"),
                 media_store,
             ),
-            "embeddings_bundle": _to_signed_url_if_needed(
-                raw_corpus_artifacts.get("embeddings_bundle"),
-                media_store,
-            ),
         },
     }
+    if "ingest" in raw_corpus:
+        materialized["ingest"] = raw_corpus.get("ingest")
+    return materialized
 
 
 def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store: MediaStore) -> dict[str, Any]:
@@ -689,15 +681,6 @@ def process_video(
                 settings=SETTINGS,
                 media_store=media_store,
             )
-            if SETTINGS.enable_corpus_ingest and corpus_output is not None:
-                graph_adapter = corpus_ingest.build_graph_adapter(SETTINGS)
-                vector_adapter = corpus_ingest.build_vector_adapter(SETTINGS)
-                ingest_report = corpus_ingest.ingest_corpus(
-                    corpus_payload=corpus_output,
-                    graph_adapter=graph_adapter,
-                    vector_adapter=vector_adapter,
-                )
-                corpus_output["ingest"] = ingest_report
 
         payload = {
             "job_id": job_id,

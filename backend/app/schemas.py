@@ -275,57 +275,6 @@ class VideoSynopsisResult(BaseModel):
     trace: dict[str, str] | None = None
 
 
-class GraphNode(BaseModel):
-    """Graph-ready corpus node payload."""
-
-    node_id: str
-    node_type: str
-    label: str
-    confidence: float
-    provenance: dict[str, Any] = Field(default_factory=dict)
-
-
-class GraphEdge(BaseModel):
-    """Graph-ready corpus edge payload."""
-
-    edge_id: str
-    source_node_id: str
-    target_node_id: str
-    predicate: str
-    confidence: float
-    evidence: list[EvidenceAnchor] = Field(min_length=1)
-
-
-class SourceFact(BaseModel):
-    """Source fact extracted directly from CV outputs."""
-
-    fact_id: str
-    fact_type: str
-    confidence: float
-    payload: dict[str, Any] = Field(default_factory=dict)
-    evidence: list[EvidenceAnchor] = Field(min_length=1)
-
-
-class DerivedClaim(BaseModel):
-    """LLM-derived claim separated from source facts."""
-
-    claim_id: str
-    text: str
-    confidence: float
-    provenance: dict[str, Any] = Field(default_factory=dict)
-    evidence: list[EvidenceAnchor] = Field(min_length=1)
-
-
-class GraphCorpusBundle(BaseModel):
-    """Graph-ready corpus bundle."""
-
-    job_id: str
-    nodes: list[GraphNode] = Field(default_factory=list)
-    edges: list[GraphEdge] = Field(default_factory=list)
-    source_facts: list[SourceFact] = Field(default_factory=list)
-    derived_claims: list[DerivedClaim] = Field(default_factory=list)
-
-
 class RetrievalChunkRecord(BaseModel):
     """Vector-search chunk with metadata references."""
 
@@ -341,37 +290,16 @@ class RetrievalCorpusBundle(BaseModel):
     chunks: list[RetrievalChunkRecord] = Field(default_factory=list)
 
 
-class EmbeddingRecord(BaseModel):
-    """Embedding vector payload for one retrieval chunk."""
-
-    chunk_id: str
-    vector: list[float] = Field(default_factory=list, min_length=1)
-    model_id: str
-    model_version: str
-
-
-class EmbeddingsCorpusBundle(BaseModel):
-    """Embeddings corpus bundle."""
-
-    job_id: str
-    dimension: int
-    embeddings: list[EmbeddingRecord] = Field(default_factory=list)
-
-
 class CorpusArtifacts(BaseModel):
     """Deterministic stored artifact references for corpus outputs."""
 
-    graph_bundle: str
     retrieval_bundle: str
-    embeddings_bundle: str
 
 
 class JobCorpusResult(BaseModel):
     """Job-level corpus products emitted after scene understanding."""
 
-    graph: GraphCorpusBundle
     retrieval: RetrievalCorpusBundle
-    embeddings: EmbeddingsCorpusBundle
     artifacts: CorpusArtifacts
     ingest: dict[str, Any] | None = None
 

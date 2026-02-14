@@ -157,13 +157,9 @@ def test_process_video_runs_scene_understanding_between_cv_and_corpus(tmp_path):
     }
 
     corpus_payload = {
-        "graph": {"job_id": job_id, "nodes": [], "edges": [], "source_facts": [], "derived_claims": []},
         "retrieval": {"job_id": job_id, "chunks": []},
-        "embeddings": {"job_id": job_id, "dimension": 8, "embeddings": []},
         "artifacts": {
-            "graph_bundle": f"jobs/{job_id}/corpus/graph/bundle.json",
             "retrieval_bundle": f"jobs/{job_id}/corpus/rag/bundle.json",
-            "embeddings_bundle": f"jobs/{job_id}/corpus/embeddings/bundle.json",
         },
     }
 
@@ -229,13 +225,9 @@ def test_process_video_skips_scene_understanding_and_keeps_stable_scene_shape(tm
 
     captured_scene_outputs: dict[str, object] = {}
     corpus_payload = {
-        "graph": {"job_id": job_id, "nodes": [], "edges": [], "source_facts": [], "derived_claims": []},
         "retrieval": {"job_id": job_id, "chunks": []},
-        "embeddings": {"job_id": job_id, "dimension": 8, "embeddings": []},
         "artifacts": {
-            "graph_bundle": f"jobs/{job_id}/corpus/graph/bundle.json",
             "retrieval_bundle": f"jobs/{job_id}/corpus/rag/bundle.json",
-            "embeddings_bundle": f"jobs/{job_id}/corpus/embeddings/bundle.json",
         },
     }
 

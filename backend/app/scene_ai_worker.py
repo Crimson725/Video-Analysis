@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
-from app import corpus, corpus_ingest, jobs, video_understanding
+from app import corpus, jobs, video_understanding
 from app.scene_ai_worker_contracts import (
     SceneWorkerTaskInput,
     attach_worker_provenance,
@@ -207,15 +207,6 @@ class SceneAIWorker:
                 settings=self.settings,
                 media_store=media_store,
             )
-            if self.settings.enable_corpus_ingest and corpus_output is not None:
-                graph_adapter = corpus_ingest.build_graph_adapter(self.settings)
-                vector_adapter = corpus_ingest.build_vector_adapter(self.settings)
-                ingest_report = corpus_ingest.ingest_corpus(
-                    corpus_payload=corpus_output,
-                    graph_adapter=graph_adapter,
-                    vector_adapter=vector_adapter,
-                )
-                corpus_output["ingest"] = ingest_report
         return {
             "job_id": task_input.job_id,
             "frames": task_input.frame_results,

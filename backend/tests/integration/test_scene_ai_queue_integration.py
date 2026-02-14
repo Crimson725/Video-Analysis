@@ -123,13 +123,9 @@ def test_queue_mode_enforces_stage_order_cv_then_scene_then_corpus():
             side_effect=lambda **kwargs: (
                 order.append("corpus"),
                 {
-                    "graph": {"job_id": job_id, "nodes": [], "edges": [], "source_facts": [], "derived_claims": []},
                     "retrieval": {"job_id": job_id, "chunks": []},
-                    "embeddings": {"job_id": job_id, "dimension": 8, "embeddings": []},
                     "artifacts": {
-                        "graph_bundle": f"jobs/{job_id}/corpus/graph/bundle.json",
                         "retrieval_bundle": f"jobs/{job_id}/corpus/rag/bundle.json",
-                        "embeddings_bundle": f"jobs/{job_id}/corpus/embeddings/bundle.json",
                     },
                 },
             )[1],
