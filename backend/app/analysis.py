@@ -1161,6 +1161,140 @@ def _deterministic_person_track_id(job_id: str, key: str) -> str:
     return f"person_track_{hashlib.sha1(seed).hexdigest()[:16]}"
 
 
+def _deterministic_object_track_id(job_id: str, key: str) -> str:
+    seed = f"{job_id}:{key}".encode("utf-8")
+    return f"object_track_{hashlib.sha1(seed).hexdigest()[:16]}"
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def run_object_tracking_summary(
+    *,
+    frame_results: list[dict[str, Any]],
+    job_id: str,
+    max_evidence_per_track: int = 25,
+) -> dict[str, Any]:
+    """Aggregate per-frame detections into deterministic job-level object tracks."""
+    evidence_limit = max(1, int(max_evidence_per_track))
+    ordered_frames = sorted(frame_results, key=lambda item: int(item.get("frame_id", 0)))
+    track_slots: dict[str, dict[str, Any]] = {}
+
+    for frame in ordered_frames:
+        frame_id = int(frame.get("frame_id", 0))
+        timestamp = str(frame.get("timestamp", ""))
+        timestamp_sec = _timestamp_seconds(timestamp)
+        analysis = frame.get("analysis", {})
+        detections_raw = analysis.get("object_detection", [])
+        if not isinstance(detections_raw, list):
+            detections_raw = []
+
+        for index, detection in enumerate(detections_raw):
+            if not isinstance(detection, dict):
+                continue
+            label = str(detection.get("label", "")).strip() or "unknown"
+            label_key = label.lower()
+            track_id = str(detection.get("track_id", "")).strip()
+            if not track_id:
+                track_id = f"{label_key}_{frame_id}_{index + 1}"
+                detection["track_id"] = track_id
+
+            slot_key = f"{label_key}::{track_id}"
+            slot = track_slots.setdefault(
+                slot_key,
+                {
+                    "label": label,
+                    "source_track_id": track_id,
+                    "frame_ids": [],
+                    "timestamps": [],
+                    "confidences": [],
+                    "evidence": [],
+                    "detections": [],
+                },
+            )
+            slot["frame_ids"].append(frame_id)
+            slot["timestamps"].append(timestamp_sec)
+            slot["confidences"].append(_coerce_float(detection.get("confidence"), default=0.0))
+            slot["detections"].append(detection)
+            slot["evidence"].append(
+                {
+                    "frame_id": frame_id,
+                    "timestamp": timestamp,
+                    "detection_index": index,
+                    "label": label,
+                    "track_id": track_id,
+                    "confidence": _coerce_float(detection.get("confidence"), default=0.0),
+                    "box": _coerce_int_box(detection.get("box")),
+                }
+            )
+
+    tracks: list[dict[str, Any]] = []
+    for slot_key in sorted(track_slots):
+        slot = track_slots[slot_key]
+        confidences = [float(value) for value in slot["confidences"]]
+        frame_ids = sorted({int(value) for value in slot["frame_ids"]})
+        timestamps = sorted(float(value) for value in slot["timestamps"])
+        object_track_id = _deterministic_object_track_id(job_id, slot_key)
+        evidence = sorted(
+            slot["evidence"],
+            key=lambda item: (
+                int(item.get("frame_id", 0)),
+                int(item.get("detection_index", 0)),
+                str(item.get("track_id", "")),
+            ),
+        )[:evidence_limit]
+
+        for detection in slot["detections"]:
+            detection["object_track_id"] = object_track_id
+
+        sample_count = len(confidences)
+        mean_conf = (sum(confidences) / sample_count) if sample_count else 0.0
+        max_conf = max(confidences) if sample_count else 0.0
+        min_conf = min(confidences) if sample_count else 0.0
+
+        tracks.append(
+            {
+                "object_track_id": object_track_id,
+                "label": str(slot["label"]),
+                "source_track_id": str(slot["source_track_id"]),
+                "confidence": {
+                    "mean": round(mean_conf, 4),
+                    "max": round(max_conf, 4),
+                    "min": round(min_conf, 4),
+                    "samples": sample_count,
+                },
+                "frame_span": {
+                    "first_frame_id": frame_ids[0] if frame_ids else None,
+                    "last_frame_id": frame_ids[-1] if frame_ids else None,
+                    "observation_count": len(frame_ids),
+                },
+                "temporal_span": {
+                    "first_seen": timestamps[0] if timestamps else 0.0,
+                    "last_seen": timestamps[-1] if timestamps else 0.0,
+                    "duration_sec": (timestamps[-1] - timestamps[0]) if len(timestamps) >= 2 else 0.0,
+                },
+                "evidence": evidence,
+            }
+        )
+
+    tracks.sort(
+        key=lambda item: (
+            int(item["frame_span"]["first_frame_id"] or 0),
+            str(item["label"]).lower(),
+            str(item["source_track_id"]),
+        )
+    )
+    return {
+        "enabled": True,
+        "method": "object_tracking_v1",
+        "tracks": tracks,
+    }
+
+
 def run_person_tracking_fusion(
     *,
     frame_results: list[dict[str, Any]],

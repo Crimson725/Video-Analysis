@@ -15,6 +15,9 @@ def test_task_input_round_trip_preserves_video_face_identities():
         video_person_tracks={
             "tracks": [{"person_track_id": "person_track_1"}],
         },
+        video_object_tracks={
+            "tracks": [{"object_track_id": "object_track_1"}],
+        },
     ).to_payload()
 
     restored = SceneWorkerTaskInput.from_payload(payload)
@@ -24,6 +27,9 @@ def test_task_input_round_trip_preserves_video_face_identities():
     }
     assert restored.video_person_tracks == {
         "tracks": [{"person_track_id": "person_track_1"}],
+    }
+    assert restored.video_object_tracks == {
+        "tracks": [{"object_track_id": "object_track_1"}],
     }
 
 
@@ -36,8 +42,10 @@ def test_task_input_invalid_video_face_identities_defaults_to_none():
             "source_key": "jobs/job-2/input/source.mp4",
             "video_face_identities": "invalid",
             "video_person_tracks": "invalid",
+            "video_object_tracks": "invalid",
         }
     )
 
     assert restored.video_face_identities is None
     assert restored.video_person_tracks is None
+    assert restored.video_object_tracks is None

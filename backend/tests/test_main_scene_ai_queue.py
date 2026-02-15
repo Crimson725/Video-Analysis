@@ -56,6 +56,7 @@ def test_process_video_enqueues_scene_task_in_queue_mode():
         ),
         patch("app.main.scene.save_original_frames"),
         patch("app.main.analysis.analyze_frame") as mock_analyze_frame,
+        patch("app.main.analysis.run_object_tracking_summary") as mock_object_summary,
         patch("app.main.video_understanding.run_scene_understanding_pipeline") as mock_scene_pipeline,
         patch("app.main.corpus.build") as mock_corpus_build,
         patch(
@@ -80,6 +81,11 @@ def test_process_video_enqueues_scene_task_in_queue_mode():
             call_order.append("cv"),
             _frame_payload(job_id),
         )[1]
+        mock_object_summary.return_value = {
+            "enabled": True,
+            "method": "object_tracking_v1",
+            "tracks": [],
+        }
 
         from app.main import process_video
 
@@ -94,6 +100,11 @@ def test_process_video_enqueues_scene_task_in_queue_mode():
     assert task is not None
     assert task.payload["job_id"] == job_id
     assert len(task.payload["frame_results"]) == 1
+    assert task.payload["video_object_tracks"] == {
+        "enabled": True,
+        "method": "object_tracking_v1",
+        "tracks": [],
+    }
     assert call_order == ["cv"]
     mock_scene_pipeline.assert_not_called()
     mock_corpus_build.assert_not_called()

@@ -139,6 +139,22 @@ def test_materialize_signed_result_urls_preserves_video_person_tracks():
     assert result["video_person_tracks"] == payload["video_person_tracks"]
 
 
+def test_materialize_signed_result_urls_preserves_video_object_tracks():
+    payload = {
+        "job_id": "job-13",
+        "frames": [],
+        "video_object_tracks": {
+            "enabled": True,
+            "method": "object_tracking_v1",
+            "tracks": [{"object_track_id": "object_track_abc"}],
+        },
+    }
+
+    result = _materialize_signed_result_urls(payload, _StubMediaStore())
+
+    assert result["video_object_tracks"] == payload["video_object_tracks"]
+
+
 def test_materialize_signed_result_urls_ignores_invalid_scene_and_frame_items():
     payload = {
         "job_id": "job-10",

@@ -98,12 +98,14 @@ class TestDetectionItem:
             label="person",
             confidence=0.93,
             box=[10, 20, 30, 40],
+            object_track_id="object_track_abc",
             person_track_id="person_track_123",
             person_identity_id="video_person_1",
             person_identity_source="video_person_id",
             person_identity_confidence=0.91,
         )
 
+        assert item.object_track_id == "object_track_abc"
         assert item.person_track_id == "person_track_123"
         assert item.person_identity_id == "video_person_1"
         assert item.person_identity_source == "video_person_id"
@@ -230,6 +232,7 @@ class TestJobResult:
         assert result.video_synopsis is None
         assert result.video_face_identities is None
         assert result.video_person_tracks is None
+        assert result.video_object_tracks is None
 
     def test_job_result_accepts_video_face_identity_summary(self):
         result = JobResult(
@@ -261,6 +264,53 @@ class TestJobResult:
 
         assert result.video_person_tracks is not None
         assert result.video_person_tracks["tracks"][0]["person_track_id"] == "person_track_123"
+
+    def test_job_result_accepts_video_object_tracks(self):
+        result = JobResult(
+            job_id="abc-123",
+            frames=[],
+            video_object_tracks={
+                "enabled": True,
+                "method": "object_tracking_v1",
+                "tracks": [
+                    {
+                        "object_track_id": "object_track_123",
+                        "label": "car",
+                        "source_track_id": "car_7",
+                        "confidence": {
+                            "mean": 0.9,
+                            "max": 0.95,
+                            "min": 0.85,
+                            "samples": 2,
+                        },
+                        "frame_span": {
+                            "first_frame_id": 0,
+                            "last_frame_id": 1,
+                            "observation_count": 2,
+                        },
+                        "temporal_span": {
+                            "first_seen": 0.5,
+                            "last_seen": 1.0,
+                            "duration_sec": 0.5,
+                        },
+                        "evidence": [
+                            {
+                                "frame_id": 0,
+                                "timestamp": "00:00:00.500",
+                                "detection_index": 0,
+                                "label": "car",
+                                "track_id": "car_7",
+                                "confidence": 0.9,
+                                "box": [10, 20, 30, 40],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        assert result.video_object_tracks is not None
+        assert result.video_object_tracks.tracks[0].object_track_id == "object_track_123"
 
     def test_scene_narrative_requires_key_moments(self):
         with pytest.raises(ValidationError):

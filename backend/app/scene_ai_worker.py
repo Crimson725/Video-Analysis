@@ -214,6 +214,7 @@ class SceneAIWorker:
             "corpus": corpus_output,
             "video_face_identities": task_input.video_face_identities,
             "video_person_tracks": task_input.video_person_tracks,
+            "video_object_tracks": task_input.video_object_tracks,
         }
 
     def _handle_non_retryable_error(self, *, task: SceneTask, error: str) -> None:

@@ -35,12 +35,13 @@ def _settings(**overrides):
     return SimpleNamespace(**defaults)
 
 
-def _task_payload(job_id: str) -> dict:
+def _task_payload(job_id: str, *, video_object_tracks: dict | None = None) -> dict:
     return SceneWorkerTaskInput(
         job_id=job_id,
         scenes=[(0.0, 1.0)],
         frame_results=[{"frame_id": 0, "timestamp": "00:00:01.000"}],
         source_key=f"jobs/{job_id}/input/source.mp4",
+        video_object_tracks=video_object_tracks,
     ).to_payload()
 
 
@@ -99,6 +100,41 @@ def test_worker_completes_task_and_persists_provenance():
     task = queue.get_task(task_id=enqueued.task_id)
     assert task is not None
     assert task.status == QUEUE_STATUS_SUCCEEDED
+
+
+def test_worker_payload_round_trip_preserves_video_object_tracks():
+    queue = InMemorySceneTaskQueue()
+    settings = _settings()
+    job_id = jobs.create_job()
+    object_tracks = {
+        "enabled": True,
+        "method": "object_tracking_v1",
+        "tracks": [{"object_track_id": "object_track_1"}],
+    }
+    queue.enqueue_task(
+        job_id=job_id,
+        payload=_task_payload(job_id, video_object_tracks=object_tracks),
+        idempotency_key=f"{job_id}:scene_understanding:v1",
+        max_attempts=1,
+    )
+    worker = SceneAIWorker.from_settings(
+        settings=settings,
+        queue=queue,
+        worker_id="worker-track-passthrough",
+        media_store_factory=lambda: MagicMock(name="media_store"),
+    )
+
+    with patch(
+        "app.scene_ai_worker.video_understanding.run_scene_understanding_pipeline",
+        return_value={"scene_narratives": [], "video_synopsis": None},
+    ):
+        processed = worker.process_next_task()
+
+    assert processed is True
+    job = jobs.get_job(job_id)
+    assert job is not None
+    assert job["status"] == "completed"
+    assert job["result"]["video_object_tracks"] == object_tracks
 
 
 def test_worker_retries_then_succeeds_after_transient_failure():

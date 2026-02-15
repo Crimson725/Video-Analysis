@@ -45,6 +45,7 @@ class DetectionItem(BaseModel):
     box: list[int] = Field(..., min_length=4, max_length=4)
     palette_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
     bbox_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
+    object_track_id: str | None = None
     person_track_id: str | None = None
     person_identity_id: str | None = None
     person_identity_source: str | None = None
@@ -308,6 +309,63 @@ class JobCorpusResult(BaseModel):
     ingest: dict[str, Any] | None = None
 
 
+class ObjectTrackConfidenceSummary(BaseModel):
+    """Confidence rollup for one object track."""
+
+    mean: float
+    max: float
+    min: float
+    samples: int
+
+
+class ObjectTrackFrameSpan(BaseModel):
+    """Frame-index span metadata for one object track."""
+
+    first_frame_id: int | None = None
+    last_frame_id: int | None = None
+    observation_count: int = 0
+
+
+class ObjectTrackTemporalSpan(BaseModel):
+    """Temporal span metadata for one object track."""
+
+    first_seen: float
+    last_seen: float
+    duration_sec: float
+
+
+class ObjectTrackEvidence(BaseModel):
+    """Per-detection evidence item backing one object track."""
+
+    frame_id: int
+    timestamp: str
+    detection_index: int
+    label: str
+    track_id: str
+    confidence: float
+    box: list[int] | None = Field(default=None, min_length=4, max_length=4)
+
+
+class VideoObjectTrack(BaseModel):
+    """Aggregated object trajectory for one source detection track."""
+
+    object_track_id: str
+    label: str
+    source_track_id: str
+    confidence: ObjectTrackConfidenceSummary
+    frame_span: ObjectTrackFrameSpan
+    temporal_span: ObjectTrackTemporalSpan
+    evidence: list[ObjectTrackEvidence] = Field(default_factory=list)
+
+
+class VideoObjectTracksResult(BaseModel):
+    """Job-level object tracking summary across all detection labels."""
+
+    enabled: bool
+    method: str
+    tracks: list[VideoObjectTrack] = Field(default_factory=list)
+
+
 class JobResult(BaseModel):
     """Full analysis result for a job."""
 
@@ -318,6 +376,7 @@ class JobResult(BaseModel):
     corpus: JobCorpusResult | None = None
     video_face_identities: dict[str, Any] | None = None
     video_person_tracks: dict[str, Any] | None = None
+    video_object_tracks: VideoObjectTracksResult | None = None
 
 
 class JobStatus(BaseModel):
