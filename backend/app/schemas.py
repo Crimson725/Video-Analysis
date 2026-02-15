@@ -45,6 +45,10 @@ class DetectionItem(BaseModel):
     box: list[int] = Field(..., min_length=4, max_length=4)
     palette_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
     bbox_rgb: list[int] | None = Field(default=None, min_length=3, max_length=3)
+    person_track_id: str | None = None
+    person_identity_id: str | None = None
+    person_identity_source: str | None = None
+    person_identity_confidence: float | None = None
 
 
 class FaceItem(BaseModel):
@@ -313,6 +317,7 @@ class JobResult(BaseModel):
     video_synopsis: VideoSynopsisResult | None = None
     corpus: JobCorpusResult | None = None
     video_face_identities: dict[str, Any] | None = None
+    video_person_tracks: dict[str, Any] | None = None
 
 
 class JobStatus(BaseModel):

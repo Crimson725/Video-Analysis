@@ -372,6 +372,7 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
         "video_synopsis": None,
         "corpus": None,
         "video_face_identities": result_payload.get("video_face_identities"),
+        "video_person_tracks": result_payload.get("video_person_tracks"),
     }
     raw_frames = result_payload.get("frames", [])
     if not isinstance(raw_frames, list):
@@ -596,6 +597,7 @@ def process_video(
             frame_results.append(result)
 
         video_face_identities: dict[str, Any] | None = None
+        video_person_tracks: dict[str, Any] | None = None
         if bool(getattr(SETTINGS, "enable_face_identity_pipeline", False)):
             tracking_frames = scene.extract_tracking_frames(
                 video_path,
@@ -613,6 +615,10 @@ def process_video(
                 settings=SETTINGS,
                 job_id=job_id,
             )
+            video_person_tracks = analysis.run_person_tracking_fusion(
+                frame_results=frame_results,
+                job_id=job_id,
+            )
 
         if _queue_mode_enabled():
             required_keys = _collect_required_artifact_keys(
@@ -623,6 +629,7 @@ def process_video(
                     **_default_scene_outputs(),
                     "corpus": None,
                     "video_face_identities": video_face_identities,
+                    "video_person_tracks": video_person_tracks,
                 },
                 source_key,
             )
@@ -633,6 +640,7 @@ def process_video(
                 frame_results=frame_results,
                 source_key=source_key,
                 video_face_identities=video_face_identities,
+                video_person_tracks=video_person_tracks,
             )
             task = get_scene_task_queue().enqueue_task(
                 job_id=job_id,
@@ -688,6 +696,7 @@ def process_video(
             **scene_outputs,
             "corpus": corpus_output,
             "video_face_identities": video_face_identities,
+            "video_person_tracks": video_person_tracks,
         }
         required_keys = _collect_required_artifact_keys(job_id, payload, source_key)
         _verify_required_artifacts(media_store, job_id, required_keys)

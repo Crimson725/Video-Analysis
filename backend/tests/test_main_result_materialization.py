@@ -124,6 +124,21 @@ def test_materialize_signed_result_urls_preserves_video_face_identity_summary():
     assert result["video_face_identities"] == payload["video_face_identities"]
 
 
+def test_materialize_signed_result_urls_preserves_video_person_tracks():
+    payload = {
+        "job_id": "job-12",
+        "frames": [],
+        "video_person_tracks": {
+            "method": "object_face_fusion_v1",
+            "tracks": [{"person_track_id": "person_track_abc"}],
+        },
+    }
+
+    result = _materialize_signed_result_urls(payload, _StubMediaStore())
+
+    assert result["video_person_tracks"] == payload["video_person_tracks"]
+
+
 def test_materialize_signed_result_urls_ignores_invalid_scene_and_frame_items():
     payload = {
         "job_id": "job-10",

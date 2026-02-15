@@ -92,6 +92,23 @@ class TestDetectionItem:
                 bbox_rgb=[255, 111],
             )
 
+    def test_accepts_fused_person_tracking_fields(self):
+        item = DetectionItem(
+            track_id="person_4",
+            label="person",
+            confidence=0.93,
+            box=[10, 20, 30, 40],
+            person_track_id="person_track_123",
+            person_identity_id="video_person_1",
+            person_identity_source="video_person_id",
+            person_identity_confidence=0.91,
+        )
+
+        assert item.person_track_id == "person_track_123"
+        assert item.person_identity_id == "video_person_1"
+        assert item.person_identity_source == "video_person_id"
+        assert item.person_identity_confidence == pytest.approx(0.91)
+
 
 class TestFaceItem:
     def test_valid_coordinates(self):
@@ -212,6 +229,7 @@ class TestJobResult:
         assert result.scene_narratives == []
         assert result.video_synopsis is None
         assert result.video_face_identities is None
+        assert result.video_person_tracks is None
 
     def test_job_result_accepts_video_face_identity_summary(self):
         result = JobResult(
@@ -230,6 +248,19 @@ class TestJobResult:
 
         assert result.video_face_identities is not None
         assert result.video_face_identities["video_identities"][0]["video_person_id"] == "video_person_1"
+
+    def test_job_result_accepts_video_person_tracks(self):
+        result = JobResult(
+            job_id="abc-123",
+            frames=[],
+            video_person_tracks={
+                "method": "object_face_fusion_v1",
+                "tracks": [{"person_track_id": "person_track_123"}],
+            },
+        )
+
+        assert result.video_person_tracks is not None
+        assert result.video_person_tracks["tracks"][0]["person_track_id"] == "person_track_123"
 
     def test_scene_narrative_requires_key_moments(self):
         with pytest.raises(ValidationError):

@@ -1072,3 +1072,357 @@ def run_face_identity_pipeline(
         "scene_identities": scene_summary,
         "video_identities": video_summary,
     }
+
+
+def _timestamp_seconds(timestamp: Any) -> float:
+    """Best-effort conversion for HH:MM:SS.mmm timestamp strings."""
+    text = str(timestamp or "").strip()
+    parts = text.split(":")
+    if len(parts) != 3:
+        return 0.0
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+    except ValueError:
+        return 0.0
+    return max(0.0, hours * 3600 + minutes * 60 + seconds)
+
+
+def _coerce_int_box(value: Any) -> list[int] | None:
+    """Normalize a box payload to [x1, y1, x2, y2] ints."""
+    if not isinstance(value, list) or len(value) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (int(v) for v in value)
+    except (TypeError, ValueError):
+        return None
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return [x1, y1, x2, y2]
+
+
+def _box_intersection_area(box_a: list[int], box_b: list[int]) -> int:
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    return max(0, x2 - x1) * max(0, y2 - y1)
+
+
+def _box_area(box: list[int]) -> int:
+    return max(0, box[2] - box[0]) * max(0, box[3] - box[1])
+
+
+def _box_iou(box_a: list[int], box_b: list[int]) -> float:
+    inter = _box_intersection_area(box_a, box_b)
+    if inter <= 0:
+        return 0.0
+    union = _box_area(box_a) + _box_area(box_b) - inter
+    if union <= 0:
+        return 0.0
+    return inter / union
+
+
+def _box_center_inside(inner: list[int], outer: list[int]) -> bool:
+    cx = (inner[0] + inner[2]) / 2.0
+    cy = (inner[1] + inner[3]) / 2.0
+    return outer[0] <= cx <= outer[2] and outer[1] <= cy <= outer[3]
+
+
+def _face_person_affinity(face_box: list[int], person_box: list[int]) -> float:
+    """Score face↔person compatibility with precision-biased geometry checks."""
+    face_area = _box_area(face_box)
+    if face_area <= 0:
+        return 0.0
+    overlap_ratio = _box_intersection_area(face_box, person_box) / face_area
+    center_inside = 1.0 if _box_center_inside(face_box, person_box) else 0.0
+    iou = _box_iou(face_box, person_box)
+    return 0.55 * overlap_ratio + 0.35 * center_inside + 0.10 * iou
+
+
+def _resolve_face_identity(face: dict[str, Any]) -> tuple[str | None, str | None, float]:
+    """Resolve identity tuple ordered by strongest available continuity signal."""
+    video_person_id = str(face.get("video_person_id", "")).strip()
+    scene_person_id = str(face.get("scene_person_id", "")).strip()
+    identity_id = str(face.get("identity_id", "")).strip()
+    confidence = float(face.get("match_confidence") or face.get("confidence") or 0.0)
+    if video_person_id:
+        return video_person_id, "video_person_id", confidence
+    if scene_person_id:
+        return scene_person_id, "scene_person_id", confidence
+    if identity_id:
+        return identity_id, "identity_id", confidence
+    return None, None, 0.0
+
+
+def _deterministic_person_track_id(job_id: str, key: str) -> str:
+    seed = f"{job_id}:{key}".encode("utf-8")
+    return f"person_track_{hashlib.sha1(seed).hexdigest()[:16]}"
+
+
+def run_person_tracking_fusion(
+    *,
+    frame_results: list[dict[str, Any]],
+    job_id: str,
+) -> dict[str, Any]:
+    """Fuse person object tracks with face identity evidence into stable video tracks."""
+    track_slots: dict[str, dict[str, Any]] = {}
+    ordered_frames = sorted(frame_results, key=lambda item: int(item.get("frame_id", 0)))
+
+    for frame in ordered_frames:
+        frame_id = int(frame.get("frame_id", 0))
+        timestamp = str(frame.get("timestamp", ""))
+        timestamp_sec = _timestamp_seconds(timestamp)
+        analysis = frame.get("analysis", {})
+        detections_raw = analysis.get("object_detection", [])
+        faces_raw = analysis.get("face_recognition", [])
+        if not isinstance(detections_raw, list):
+            detections_raw = []
+        if not isinstance(faces_raw, list):
+            faces_raw = []
+
+        person_detections: list[tuple[dict[str, Any], list[int], str]] = []
+        for index, det in enumerate(detections_raw):
+            if not isinstance(det, dict):
+                continue
+            label = str(det.get("label", "")).strip().lower()
+            if label != "person":
+                continue
+            box = _coerce_int_box(det.get("box"))
+            if box is None:
+                continue
+            track_id = str(det.get("track_id", "")).strip() or f"person_track_{frame_id}_{index + 1}"
+            det["track_id"] = track_id
+            person_detections.append((det, box, track_id))
+
+            slot = track_slots.setdefault(
+                track_id,
+                {
+                    "track_id": track_id,
+                    "frame_ids": [],
+                    "timestamps": [],
+                    "identity_votes": {},
+                    "identity_source_votes": {},
+                    "evidence": [],
+                },
+            )
+            slot["frame_ids"].append(frame_id)
+            slot["timestamps"].append(timestamp_sec)
+
+        for face in faces_raw:
+            if not isinstance(face, dict):
+                continue
+            face_box = _coerce_int_box(face.get("coordinates"))
+            if face_box is None:
+                continue
+            identity_id, source, identity_conf = _resolve_face_identity(face)
+            if identity_id is None or source is None:
+                continue
+
+            best_index = -1
+            best_score = 0.0
+            for idx, (_det, person_box, _track_id) in enumerate(person_detections):
+                score = _face_person_affinity(face_box, person_box)
+                if score > best_score:
+                    best_score = score
+                    best_index = idx
+            # Precision-first threshold keeps identity binding conservative.
+            if best_index < 0 or best_score < 0.45:
+                continue
+
+            matched_det, matched_box, matched_track_id = person_detections[best_index]
+            vote_slot = track_slots[matched_track_id]["identity_votes"].setdefault(
+                identity_id,
+                {
+                    "count": 0,
+                    "confidence_sum": 0.0,
+                },
+            )
+            vote_slot["count"] += 1
+            vote_slot["confidence_sum"] += identity_conf
+            source_votes = track_slots[matched_track_id]["identity_source_votes"]
+            source_votes[source] = int(source_votes.get(source, 0)) + 1
+            track_slots[matched_track_id]["evidence"].append(
+                {
+                    "frame_id": frame_id,
+                    "timestamp": timestamp,
+                    "object_track_id": matched_track_id,
+                    "face_id": int(face.get("face_id", 0)),
+                    "identity_id": identity_id,
+                    "identity_source": source,
+                    "identity_confidence": float(identity_conf),
+                    "association_confidence": round(best_score, 4),
+                    "face_box": face_box,
+                    "person_box": matched_box,
+                }
+            )
+            matched_det["person_identity_candidate"] = identity_id
+
+    normalized_tracks: list[dict[str, Any]] = []
+    for track_id in sorted(track_slots):
+        slot = track_slots[track_id]
+        votes: dict[str, dict[str, Any]] = slot["identity_votes"]
+        resolved_identity: str | None = None
+        resolved_source: str | None = None
+        resolved_confidence: float | None = None
+        is_ambiguous = False
+
+        if votes:
+            ranked = sorted(
+                votes.items(),
+                key=lambda item: (
+                    -int(item[1]["count"]),
+                    -(float(item[1]["confidence_sum"]) / max(1, int(item[1]["count"]))),
+                    item[0],
+                ),
+            )
+            top_identity, top_stats = ranked[0]
+            top_count = int(top_stats["count"])
+            top_avg_conf = float(top_stats["confidence_sum"]) / max(1, top_count)
+            total_votes = sum(int(v["count"]) for v in votes.values())
+            dominance = top_count / max(1, total_votes)
+
+            if len(ranked) > 1:
+                second_identity, second_stats = ranked[1]
+                second_count = int(second_stats["count"])
+                second_avg_conf = float(second_stats["confidence_sum"]) / max(1, second_count)
+                is_ambiguous = second_count >= top_count and second_avg_conf >= top_avg_conf - 0.05
+                if second_identity == top_identity:
+                    is_ambiguous = False
+
+            if not is_ambiguous and (dominance >= 0.6 or top_count >= 2 or top_avg_conf >= 0.85):
+                resolved_identity = top_identity
+                source_votes = slot["identity_source_votes"]
+                resolved_source = sorted(
+                    source_votes.items(),
+                    key=lambda item: (-int(item[1]), item[0]),
+                )[0][0]
+                resolved_confidence = round(min(1.0, 0.5 * dominance + 0.5 * top_avg_conf), 4)
+
+        normalized_tracks.append(
+            {
+                "track_id": track_id,
+                "frame_ids": sorted({int(fid) for fid in slot["frame_ids"]}),
+                "timestamps": sorted(float(ts) for ts in slot["timestamps"]),
+                "identity_id": resolved_identity,
+                "identity_source": resolved_source,
+                "identity_confidence": resolved_confidence,
+                "is_identity_ambiguous": is_ambiguous,
+                "evidence": sorted(
+                    slot["evidence"],
+                    key=lambda item: (
+                        int(item.get("frame_id", 0)),
+                        int(item.get("face_id", 0)),
+                        str(item.get("object_track_id", "")),
+                    ),
+                ),
+            }
+        )
+
+    fused_groups: dict[str, dict[str, Any]] = {}
+    for track in normalized_tracks:
+        identity_id = track["identity_id"]
+        group_key = f"identity::{identity_id}" if identity_id else f"track::{track['track_id']}"
+        group = fused_groups.setdefault(
+            group_key,
+            {
+                "identity_id": identity_id,
+                "identity_source": track["identity_source"],
+                "identity_confidence_values": [],
+                "is_identity_ambiguous": False,
+                "object_track_ids": [],
+                "frame_ids": [],
+                "timestamps": [],
+                "evidence": [],
+            },
+        )
+        group["object_track_ids"].append(track["track_id"])
+        group["frame_ids"].extend(track["frame_ids"])
+        group["timestamps"].extend(track["timestamps"])
+        group["evidence"].extend(track["evidence"])
+        if track["identity_confidence"] is not None:
+            group["identity_confidence_values"].append(float(track["identity_confidence"]))
+        group["is_identity_ambiguous"] = bool(group["is_identity_ambiguous"]) or bool(
+            track["is_identity_ambiguous"]
+        )
+
+    fused_tracks: list[dict[str, Any]] = []
+    track_lookup: dict[str, dict[str, Any]] = {}
+    for group_key in sorted(fused_groups):
+        group = fused_groups[group_key]
+        object_track_ids = sorted(set(str(item) for item in group["object_track_ids"]))
+        frame_ids = sorted(set(int(item) for item in group["frame_ids"]))
+        timestamps = sorted(float(item) for item in group["timestamps"])
+        identity_id = group["identity_id"]
+        stable_key = f"identity::{identity_id}" if identity_id else f"tracks::{','.join(object_track_ids)}"
+        person_track_id = _deterministic_person_track_id(job_id, stable_key)
+        identity_conf_values = group["identity_confidence_values"]
+        identity_confidence = None
+        if identity_conf_values:
+            identity_confidence = round(sum(identity_conf_values) / len(identity_conf_values), 4)
+        payload = {
+            "person_track_id": person_track_id,
+            "identity_id": identity_id,
+            "identity_source": group["identity_source"],
+            "identity_confidence": identity_confidence,
+            "is_identity_ambiguous": bool(group["is_identity_ambiguous"]),
+            "object_track_ids": object_track_ids,
+            "frame_span": {
+                "first_frame_id": frame_ids[0] if frame_ids else None,
+                "last_frame_id": frame_ids[-1] if frame_ids else None,
+                "observation_count": len(frame_ids),
+            },
+            "temporal_span": {
+                "first_seen": timestamps[0] if timestamps else 0.0,
+                "last_seen": timestamps[-1] if timestamps else 0.0,
+                "duration_sec": (timestamps[-1] - timestamps[0]) if len(timestamps) >= 2 else 0.0,
+            },
+            "evidence": sorted(
+                group["evidence"],
+                key=lambda item: (
+                    int(item.get("frame_id", 0)),
+                    int(item.get("face_id", 0)),
+                    str(item.get("object_track_id", "")),
+                ),
+            )[:25],
+        }
+        fused_tracks.append(payload)
+        for object_track_id in object_track_ids:
+            track_lookup[object_track_id] = payload
+
+    for frame in ordered_frames:
+        analysis = frame.get("analysis", {})
+        detections_raw = analysis.get("object_detection", [])
+        if not isinstance(detections_raw, list):
+            continue
+        for detection in detections_raw:
+            if not isinstance(detection, dict):
+                continue
+            label = str(detection.get("label", "")).strip().lower()
+            if label != "person":
+                continue
+            track_id = str(detection.get("track_id", "")).strip()
+            if not track_id:
+                continue
+            resolved = track_lookup.get(track_id)
+            if resolved is None:
+                continue
+            detection["person_track_id"] = resolved["person_track_id"]
+            detection["person_identity_id"] = resolved["identity_id"]
+            detection["person_identity_source"] = resolved["identity_source"]
+            detection["person_identity_confidence"] = resolved["identity_confidence"]
+            detection.pop("person_identity_candidate", None)
+
+    fused_tracks.sort(
+        key=lambda item: (
+            int(item["frame_span"]["first_frame_id"] or 0),
+            str(item["identity_id"] or ""),
+            str(item["person_track_id"]),
+        )
+    )
+    return {
+        "enabled": True,
+        "method": "object_face_fusion_v1",
+        "tracks": fused_tracks,
+    }

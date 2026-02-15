@@ -15,6 +15,7 @@ class SceneWorkerTaskInput:
     frame_results: list[dict[str, Any]]
     source_key: str
     video_face_identities: dict[str, Any] | None = None
+    video_person_tracks: dict[str, Any] | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -23,6 +24,7 @@ class SceneWorkerTaskInput:
             "frame_results": self.frame_results,
             "source_key": self.source_key,
             "video_face_identities": self.video_face_identities,
+            "video_person_tracks": self.video_person_tracks,
         }
 
     @classmethod
@@ -52,6 +54,11 @@ class SceneWorkerTaskInput:
             video_face_identities=(
                 payload.get("video_face_identities")
                 if isinstance(payload.get("video_face_identities"), dict)
+                else None
+            ),
+            video_person_tracks=(
+                payload.get("video_person_tracks")
+                if isinstance(payload.get("video_person_tracks"), dict)
                 else None
             ),
         )
