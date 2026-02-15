@@ -9,3 +9,4 @@
 /Test Videos
 backend/.env.local
 /backend/tmp_media
+/.serena
