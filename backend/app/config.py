@@ -216,6 +216,18 @@ def _scene_understanding_settings() -> dict[str, Any]:
         ),
         "langsmith_tracing_enabled": _read_bool("LANGSMITH_TRACING", default=False),
         "langsmith_project": _read_str("LANGSMITH_PROJECT"),
+        # KG pipeline settings
+        "kg_pipeline_enabled": _read_bool("KG_PIPELINE_ENABLED", default=False),
+        "kg_max_keyframes": _read_int("KG_MAX_KEYFRAMES", default=12, minimum=1),
+        "kg_motion_threshold": _read_float("KG_MOTION_THRESHOLD", default=80.0, minimum=0.0),
+        "kg_interaction_distance_threshold": _read_float(
+            "KG_INTERACTION_DISTANCE_THRESHOLD",
+            default=150.0,
+            minimum=0.0,
+        ),
+        "kg_near_threshold": _read_float("KG_NEAR_THRESHOLD", default=150.0, minimum=0.0),
+        "kg_max_repair_retries": _read_int("KG_MAX_REPAIR_RETRIES", default=1, minimum=0),
+        "kg_allowed_predicates": _read_str("KG_ALLOWED_PREDICATES", ""),
     }
 
 
@@ -317,6 +329,13 @@ class Settings:
     scene_packet_disambiguation_label_threshold: int
     langsmith_tracing_enabled: bool
     langsmith_project: str
+    kg_pipeline_enabled: bool
+    kg_max_keyframes: int
+    kg_motion_threshold: float
+    kg_interaction_distance_threshold: float
+    kg_near_threshold: float
+    kg_max_repair_retries: int
+    kg_allowed_predicates: str
     enable_corpus_pipeline: bool
     enable_corpus_ingest: bool
     graph_backend: str

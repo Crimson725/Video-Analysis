@@ -25,6 +25,7 @@ dependencies = [
     "langsmith>=0.3.0",
     "neo4j>=5.28.0",
     "psycopg[binary]>=3.2.6",
+    "spacy>=3.7.0",
 ]
 
 [project.optional-dependencies]

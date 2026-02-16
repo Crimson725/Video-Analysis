@@ -6,10 +6,11 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from uuid import uuid4
 
 from app import corpus, jobs, video_understanding
+from app.scene_kg_workflow import run_kg_workflow
 from app.scene_ai_worker_contracts import (
     SceneWorkerTaskInput,
     attach_worker_provenance,
@@ -95,6 +96,22 @@ class SceneAIWorker:
             media_store_factory=media_store_factory or (lambda: _build_media_store(settings)),
         )
 
+    def _get_neo4j_writer(self) -> Any:
+        """Initialize Neo4j writer from settings, or return None if unavailable."""
+        try:
+            from app.neo4j_writer import Neo4jWriter
+
+            uri = getattr(self.settings, "neo4j_uri", "bolt://127.0.0.1:7687")
+            user = getattr(self.settings, "neo4j_username", "neo4j")
+            password = getattr(self.settings, "neo4j_password", "local-dev-password")
+            database = getattr(self.settings, "neo4j_database", "neo4j")
+            writer = Neo4jWriter(uri=uri, user=user, password=password, database=database)
+            writer.ensure_constraints()
+            return writer
+        except Exception as exc:
+            logger.warning("Neo4j writer initialization failed: %s", exc)
+            return None
+
     def process_next_task(self) -> bool:
         """Claim one task and execute it. Returns True when a task was processed."""
         task = self.queue.claim_task(
@@ -145,6 +162,73 @@ class SceneAIWorker:
                         settings=self.settings,
                         media_store=media_store,
                     )
+                )
+
+            # KG enrichment pipeline (runs alongside narrative pipeline)
+            kg_results: list[dict] = []
+            if getattr(self.settings, "kg_pipeline_enabled", False):
+                neo4j_writer = self._get_neo4j_writer()
+                from app.scene_packet_builder import select_scene_frames
+
+                for scene_idx, (start_sec, end_sec) in enumerate(task_input.scenes):
+                    scene_frames = select_scene_frames(
+                        task_input.frame_results, start_sec, end_sec
+                    )
+                    try:
+                        kg_result = run_kg_workflow(
+                            job_id=task_input.job_id,
+                            scene_id=scene_idx,
+                            source_key=task_input.source_key,
+                            start_sec=start_sec,
+                            end_sec=end_sec,
+                            scene_frames=scene_frames,
+                            settings=self.settings,
+                            media_store=media_store,
+                            neo4j_writer=neo4j_writer,
+                        )
+                        kg_results.append(kg_result)
+                    except Exception as exc:
+                        logger.warning(
+                            "KG workflow failed for scene %d: %s", scene_idx, exc
+                        )
+                        kg_results.append({"error": str(exc)})
+
+                if neo4j_writer is not None:
+                    try:
+                        neo4j_writer.close()
+                    except Exception:
+                        pass
+                scene_outputs["kg_results"] = kg_results
+
+                # Log KG pipeline metrics
+                total_scenes = len(kg_results)
+                validation_failures = sum(
+                    1 for r in kg_results
+                    if r.get("validation_errors")
+                )
+                repair_count = sum(
+                    r.get("retry_count", 0) for r in kg_results
+                )
+                total_edges = sum(
+                    len(r.get("scene_graph_delta", {}).relations)
+                    if hasattr(r.get("scene_graph_delta"), "relations") else 0
+                    for r in kg_results
+                )
+                total_events = sum(
+                    len(r.get("scene_graph_delta", {}).events)
+                    if hasattr(r.get("scene_graph_delta"), "events") else 0
+                    for r in kg_results
+                )
+                logger.info(
+                    "scene_ai_worker.kg_metrics job_id=%s total_scenes=%d "
+                    "validation_failures=%d repair_attempts=%d "
+                    "total_relations=%d total_events=%d",
+                    task_input.job_id,
+                    total_scenes,
+                    validation_failures,
+                    repair_count,
+                    total_edges,
+                    total_events,
                 )
             provenance = build_worker_provenance(
                 worker_id=self.worker_id,
