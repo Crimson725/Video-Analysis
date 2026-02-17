@@ -14,7 +14,6 @@ It processes scenes and keyframes, runs computer vision analysis, and returns jo
 
 - Python `3.13.x`
 - [uv](https://docs.astral.sh/uv/) for dependency management and running commands
-- Podman (optional, needed for local corpus/graph/vector integration workflows)
 
 ## Setup
 
@@ -39,12 +38,6 @@ Alternative:
 uv run python run.py
 ```
 
-If using queue mode for scene AI, run worker in a second terminal:
-
-```bash
-SCENE_AI_EXECUTION_MODE=queue uv run python -m app.worker
-```
-
 ## Basic API Endpoints
 
 - `POST /analyze-video` - upload video and start analysis (returns `job_id`)
@@ -66,5 +59,4 @@ make test-integration
 ## More Details
 
 - Backend details: `backend/README.md`
-- Local corpus stack guide: `backend/docs/local-corpus-stack.md`
 - Pipeline overview: `video_analysis_pipeline.md`

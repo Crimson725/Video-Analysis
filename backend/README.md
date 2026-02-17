@@ -1,6 +1,6 @@
 # Video Analysis Backend
 
-Python FastAPI backend for video analysis (scene detection, segmentation, object detection, face recognition).
+Python FastAPI backend for video analysis (scene detection, segmentation, object detection, face recognition, and face-identity fusion).
 
 ## Setup
 
@@ -24,12 +24,6 @@ Or:
 uv run python run.py
 ```
 
-Run the out-of-process scene AI worker (required when `SCENE_AI_EXECUTION_MODE=queue`):
-
-```bash
-uv run python -m app.worker
-```
-
 ## API Endpoints
 
 - `POST /analyze-video` - Upload video, returns `job_id` (HTTP 202)
@@ -37,67 +31,19 @@ uv run python -m app.worker
 - `GET /status/{job_id}` - Poll job status
 - `GET /results/{job_id}` - Get analysis JSON with signed R2 file URLs when completed
 
-## Pipeline Stage Order (LLM Boundary)
+## Pipeline Stage Order
 
 `process_video()` executes stages in this order:
 
-1. scene detection + keyframe extraction
-2. per-keyframe CV analysis (segmentation, detection, face, enrichment)
-3. scene-understanding stage:
-   - `SCENE_AI_EXECUTION_MODE=in_process`: execute scene-understanding in API process
-   - `SCENE_AI_EXECUTION_MODE=queue`: enqueue Postgres task and execute out-of-process in worker
-4. corpus retrieval bundle build when `ENABLE_CORPUS_PIPELINE=true` after scene stage success (or explicit fallback policy)
+1. source upload to R2 and source verification
+2. scene detection + keyframe extraction
+3. per-keyframe CV analysis (segmentation, detection, face, enrichment)
+4. video-level tracking outputs:
+   - object tracking summary (`video_object_tracks`)
+   - optional face identity + person fusion (`video_face_identities`, `video_person_tracks`)
+5. artifact verification and job completion
 
-LLM involvement is constrained to stage 3 (scene understanding). When scene understanding is disabled, results keep a stable shape with:
-
-- `scene_narratives: []`
-- `video_synopsis: null`
-
-### Scene Understanding Multimodal Packet
-
-When `ENABLE_SCENE_UNDERSTANDING_PIPELINE=true`, scene understanding now builds a multimodal packet per scene with deterministic image↔JSON linkage:
-
-- Includes all scene frame artifacts for `original`, `detection`, and `segmentation`.
-- Includes `face` artifacts only for frames where `analysis.face_recognition` is non-empty.
-- Links every image artifact to exactly one frame JSON artifact via a stable `evidence_id` entry in packet metadata.
-- Uses prompt-policy versioning (`SCENE_AI_PROMPT_VERSION`) to assemble extensible scene-understanding system instructions while keeping output narrative-first.
-
-## Corpus Retrieval Pipeline Flags
-
-These flags are enabled by default and can be overridden per environment:
-
-- `ENABLE_SCENE_UNDERSTANDING_PIPELINE` - build scene packets, scene narratives, and video synopsis (`true` default)
-- `SCENE_AI_EXECUTION_MODE` - `in_process` (default) or `queue`
-- `SCENE_AI_QUEUE_DSN` - Postgres DSN for scene task queue (defaults to `PGVECTOR_DSN`)
-- `SCENE_AI_MAX_ATTEMPTS` - max queue attempts before dead-letter (`3` default)
-- `SCENE_AI_RETRY_BACKOFF_SECONDS` - retry backoff base seconds (`5` default)
-- `SCENE_AI_RETRY_BACKOFF_MULTIPLIER` - exponential backoff multiplier (`2` default)
-- `SCENE_AI_RETRY_BACKOFF_MAX_SECONDS` - max retry backoff seconds (`300` default)
-- `SCENE_AI_LEASE_TIMEOUT_SECONDS` - worker claim lease timeout (`120` default)
-- `SCENE_AI_FAILURE_POLICY` - `fail_job` (default) or `fallback_empty`
-- `SCENE_AI_WORKER_POLL_INTERVAL_SECONDS` - worker polling interval (`2` default)
-- `SCENE_AI_PROMPT_VERSION` - worker prompt policy version metadata (`v1` default)
-- `SCENE_AI_RUNTIME_VERSION` - worker runtime policy version metadata (`v1` default)
-- `SCENE_MODEL_ID` - Gemini model for scene narrative generation (default `gemini-3-flash-preview`)
-- `SYNOPSIS_MODEL_ID` - Gemini model for video synopsis generation (default `gemini-3-flash-preview`)
-- `ENABLE_CORPUS_PIPELINE` - build retrieval bundle after scene understanding (`true` default)
-- `ENABLE_CORPUS_INGEST` - currently ignored while legacy graph/embedding ingest is removed
-
-## Queue Mode Local Workflow
-
-Run API + worker in separate terminals:
-
-```bash
-# Terminal 1
-cd backend
-SCENE_AI_EXECUTION_MODE=queue uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-```bash
-# Terminal 2
-cd backend
-SCENE_AI_EXECUTION_MODE=queue uv run python -m app.worker
-```
+The runtime pipeline stops after CV/tracking outputs. It does not dispatch queue worker tasks and does not build corpus artifacts.
 
 ## Cloudflare R2 Configuration
 
@@ -122,17 +68,8 @@ At startup, the backend automatically loads dotenv files from the backend direct
 1. `backend/.env`
 2. `backend/.env.local`
 
-`backend/.env.local` is the recommended place for machine-local secrets such as `GOOGLE_API_KEY`.
+`backend/.env.local` is the recommended place for machine-local secrets/config.
 Environment variables already present in the process take precedence over file values.
-
-## R2 Lifecycle Operations
-
-Use Cloudflare R2 lifecycle rules in each environment to:
-
-- Abort incomplete multipart uploads after the configured threshold (`R2_ABORT_MULTIPART_DAYS`)
-- Expire old job artifact objects under the `jobs/` prefix according to retention policy (`R2_RETENTION_DAYS`)
-
-Reference helper payload: `/Users/crimson2049/Video Analysis/backend/docs/r2-lifecycle.example.json`
 
 ## Analysis Artifact Layout (JSON)
 
@@ -144,7 +81,6 @@ This keeps JSON outputs linked to:
 
 - source video: `jobs/<job_id>/input/source.<ext>`
 - frame images: `jobs/<job_id>/frames/{original|seg|det|face}/frame_<N>.jpg`
-- scene packets: `jobs/<job_id>/scene/packets/scene_<N>.json`
 
 ## Local Staging and Cleanup Policy
 
@@ -155,49 +91,6 @@ This keeps JSON outputs linked to:
   2. fallback to `CLEANUP_LOCAL_VIDEO_AFTER_UPLOAD_DEFAULT`
 - When cleanup is disabled, the scheduler preserves the retained source video and removes stale non-source artifacts.
 
-## R2 JSON Artifact Integration Test
-
-Run the targeted R2 read/write test:
-
-```bash
-cd backend
-uv run pytest tests/integration/test_r2_analysis_artifacts_integration.py -m integration -v
-```
-
-Behavior:
-
-- Skips when required R2 credentials/config are missing.
-- Writes JSON artifacts to R2, reads them back, and validates payload integrity.
-- Always deletes test-created objects in teardown/finally, including failure-path scenarios.
-
-## Scene LLM External API Smoke Tests (Live Gemini)
-
-Recommended smoke command:
-
-```bash
-cd backend
-GOOGLE_API_KEY="<your-gemini-key>" ENABLE_SCENE_UNDERSTANDING_PIPELINE=true \
-  uv run pytest tests/integration/test_video_synopsis_e2e_integration.py tests/integration/test_output_content_e2e_integration.py -m "integration and external_api" -vv
-```
-
-Prerequisites:
-
-- `GOOGLE_API_KEY` must be set (or present in `backend/.env.local`).
-- R2 settings must be configured (for example in `backend/.env.r2`).
-- `ENABLE_SCENE_UNDERSTANDING_PIPELINE=true`.
-
-Behavior:
-
-- Calls Gemini through the live production scene-understanding runtime path.
-- Skips with actionable guidance when credentials/runtime prerequisites are missing.
-- Skips when Gemini quota/rate-limit availability prevents a live run.
-- Asserts only minimal non-semantic contract checks: non-empty scene narratives/synopsis and required structural fields.
-- Does not assert exact wording, topical coverage, or narrative/factual correctness.
-
-Pass criteria:
-
-- The API call succeeds and pipeline output is parseable with minimally usable response fields.
-
 ## Dependencies
 
 The ML stack is **PyTorch-first** for in-repo pipeline execution and does not require TensorFlow:
@@ -207,7 +100,7 @@ The ML stack is **PyTorch-first** for in-repo pipeline execution and does not re
 - **scenedetect** — video scene boundary detection
 - **opencv-python** — frame I/O and drawing
 
-## EdgeFace rollout and rollback
+## Face Identity
 
 Continuous face identity runs on a PyTorch-only EdgeFace path and is enabled by default.
 
@@ -237,9 +130,9 @@ FACE_IDENTITY_AMBIGUITY_MARGIN=0.03
 
 Rollback controls:
 
-- Disable face identity entirely with `ENABLE_FACE_IDENTITY_PIPELINE=false`.
-- Keep identity mode on but swap to alternate profile via `FACE_IDENTITY_MODEL_ID` and/or alternate weights via `FACE_IDENTITY_WEIGHTS_PATH`.
-- Force deterministic backend selection with `FACE_IDENTITY_BACKEND=cuda|mps|cpu`.
+- Disable face identity with `ENABLE_FACE_IDENTITY_PIPELINE=false`.
+- Swap profile via `FACE_IDENTITY_MODEL_ID` and/or weights via `FACE_IDENTITY_WEIGHTS_PATH`.
+- Force backend via `FACE_IDENTITY_BACKEND=cuda|mps|cpu`.
 
 ## GPU
 
@@ -251,7 +144,7 @@ For GPU acceleration, install the CUDA build of PyTorch:
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-Replace `cu121` with your CUDA version (e.g., `cu118` for CUDA 11.8). Then install the rest:
+Replace `cu121` with your CUDA version (for example `cu118` for CUDA 11.8). Then install the rest:
 
 ```bash
 pip install -r requirements.txt

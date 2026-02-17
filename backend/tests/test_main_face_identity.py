@@ -185,7 +185,6 @@ def test_startup_validation_logs_face_identity_runtime_when_enabled(caplog):
             ),
         ),
         patch("app.main.edgeface_runtime_note", return_value="edgeface-runtime-note"),
-        patch("app.main._queue_mode_enabled", return_value=False),
     ):
         from app.main import _startup_validate_settings
 

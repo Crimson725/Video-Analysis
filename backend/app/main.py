@@ -13,9 +13,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import analysis, cleanup, corpus, jobs, scene
-from app.scene_ai_worker_contracts import SceneWorkerTaskInput
-from app.scene_task_queue import PostgresSceneTaskQueue, build_postgres_scene_task_queue
+from app import analysis, cleanup, jobs, scene
 from app.config import Settings
 from app.models import ModelLoader, edgeface_runtime_note
 from app.schemas import JobResult, JobStatus
@@ -28,7 +26,6 @@ TEMP_MEDIA_DIR = Path(SETTINGS.temp_media_dir)
 TEMP_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB
 _media_store: MediaStore | None = None
-_scene_task_queue: PostgresSceneTaskQueue | None = None
 
 
 def get_media_store() -> MediaStore:
@@ -43,26 +40,6 @@ def get_media_store() -> MediaStore:
             default_url_ttl_seconds=SETTINGS.r2_url_ttl_seconds,
         )
     return _media_store
-
-
-def get_scene_task_queue() -> PostgresSceneTaskQueue:
-    """Build and cache the Postgres queue client used for scene worker dispatch."""
-    global _scene_task_queue
-    if _scene_task_queue is None:
-        _scene_task_queue = build_postgres_scene_task_queue(
-            dsn=SETTINGS.scene_ai_queue_dsn
-        )
-    return _scene_task_queue
-
-
-def _queue_mode_enabled() -> bool:
-    return (
-        bool(getattr(SETTINGS, "kg_pipeline_enabled", False))
-        and str(getattr(SETTINGS, "scene_ai_execution_mode", "in_process"))
-        .strip()
-        .lower()
-        == "queue"
-    )
 
 
 def _startup_validate_settings() -> None:
@@ -88,31 +65,6 @@ def _startup_validate_settings() -> None:
             SETTINGS.face_identity_backend,
         )
         logger.info("%s", edgeface_runtime_note())
-    if SETTINGS.enable_corpus_ingest and not SETTINGS.enable_corpus_pipeline:
-        logger.warning(
-            "Corpus ingest is enabled while corpus build is disabled. "
-            "Set ENABLE_CORPUS_PIPELINE=true to produce ingestable artifacts."
-        )
-    if SETTINGS.enable_corpus_ingest:
-        logger.warning(
-            "ENABLE_CORPUS_INGEST is currently ignored. "
-            "Legacy graph/embedding ingest support has been removed."
-        )
-    if _queue_mode_enabled():
-        if not SETTINGS.scene_ai_queue_dsn:
-            logger.warning(
-                "Queue mode is enabled but SCENE_AI_QUEUE_DSN is empty. "
-                "Scene AI task dispatch will fail."
-            )
-        else:
-            try:
-                get_scene_task_queue().ensure_schema()
-            except Exception as exc:  # pragma: no cover - startup env dependent
-                logger.warning(
-                    "Queue mode schema initialization failed. "
-                    "Set SCENE_AI_EXECUTION_MODE=in_process to bypass queue path. error=%s",
-                    exc,
-                )
 
 
 def _extract_source_extension(filename: str | None) -> str:
@@ -381,14 +333,6 @@ def _collect_required_artifact_keys(
             warning_context=(job_id, frame_id),
         )
 
-    corpus_payload = result_payload.get("corpus")
-    if isinstance(corpus_payload, dict):
-        _collect_required_keys_from_values(
-            required=required,
-            values=corpus_payload.get("artifacts", {}).values(),
-            warning_template="upload.verify.invalid_corpus_key job_id=%s value=%s",
-            warning_context=(job_id,),
-        )
     return required
 
 
@@ -537,67 +481,10 @@ def process_video(
                 job_id=job_id,
             )
 
-        if _queue_mode_enabled():
-            required_keys = _collect_required_artifact_keys(
-                job_id,
-                {
-                    "job_id": job_id,
-                    "frames": frame_results,
-                    "corpus": None,
-                    "video_face_identities": video_face_identities,
-                    "video_person_tracks": video_person_tracks,
-                    "video_object_tracks": video_object_tracks,
-                },
-                source_key,
-            )
-            _verify_required_artifacts(media_store, job_id, required_keys)
-            task_input = SceneWorkerTaskInput(
-                job_id=job_id,
-                scenes=scenes,
-                frame_results=frame_results,
-                source_key=source_key,
-                video_face_identities=video_face_identities,
-                video_person_tracks=video_person_tracks,
-                video_object_tracks=video_object_tracks,
-            )
-            task = get_scene_task_queue().enqueue_task(
-                job_id=job_id,
-                payload=task_input.to_payload(),
-                idempotency_key=task_input.idempotency_key(),
-                max_attempts=SETTINGS.scene_ai_max_attempts,
-            )
-            jobs.set_job_stage(job_id, "waiting_scene_ai")
-            jobs.update_job_metadata(
-                job_id,
-                {
-                    "scene_task_id": task.task_id,
-                    "source_key": source_key,
-                },
-            )
-            logger.info(
-                "scene_ai_queue.enqueued task_id=%s job_id=%s attempts=%s mode=%s",
-                task.task_id,
-                job_id,
-                task.max_attempts,
-                SETTINGS.scene_ai_execution_mode,
-            )
-            return
-
-        corpus_output: dict[str, Any] | None = None
-        if SETTINGS.enable_corpus_pipeline:
-            jobs.set_job_stage(job_id, "corpus_processing")
-            corpus_output = corpus.build(
-                job_id=job_id,
-                scenes=scenes,
-                frame_results=frame_results,
-                settings=SETTINGS,
-                media_store=media_store,
-            )
-
         payload = {
             "job_id": job_id,
             "frames": frame_results,
-            "corpus": corpus_output,
+            "corpus": None,
             "video_face_identities": video_face_identities,
             "video_person_tracks": video_person_tracks,
             "video_object_tracks": video_object_tracks,
