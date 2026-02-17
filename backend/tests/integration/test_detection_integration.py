@@ -16,6 +16,7 @@ JOB_ID = "test-det-job"
 # 5.2 — run_detection returns structurally valid output
 # ---------------------------------------------------------------------------
 
+
 class TestRunDetectionIntegration:
     def test_returns_list(self, sample_frame, models, static_dir):
         items = run_detection(
@@ -66,6 +67,7 @@ class TestRunDetectionIntegration:
 # ---------------------------------------------------------------------------
 # 5.3 — run_detection saves a visualization file
 # ---------------------------------------------------------------------------
+
 
 class TestDetectionVisualization:
     def test_saves_visualization_jpeg(self, sample_frame, models, static_dir):

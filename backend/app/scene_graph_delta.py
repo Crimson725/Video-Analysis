@@ -52,7 +52,9 @@ class RelationDelta(BaseModel):
     """Semantic relation triple between two entities with temporal span."""
 
     subject_id: str = Field(..., description="Entity ID of the subject.")
-    predicate: str = Field(..., description="Relation predicate from allowed predicates list.")
+    predicate: str = Field(
+        ..., description="Relation predicate from allowed predicates list."
+    )
     object_id: str = Field(..., description="Entity ID of the object.")
     time_span_s: tuple[float, float] = Field(
         ...,
@@ -106,6 +108,7 @@ class SceneGraphDelta(BaseModel):
 # Validation
 # ---------------------------------------------------------------------------
 
+
 def validate_delta(
     delta: SceneGraphDelta,
     *,
@@ -125,9 +128,7 @@ def validate_delta(
     for entity in delta.entities:
         # ID resolution
         if entity.entity_id not in tracks_index_keys:
-            errors.append(
-                f"Entity ID '{entity.entity_id}' not found in tracks_index"
-            )
+            errors.append(f"Entity ID '{entity.entity_id}' not found in tracks_index")
         # Evidence validity
         for fid in entity.evidence.supporting_frames:
             if fid not in frame_set:
@@ -140,9 +141,7 @@ def validate_delta(
     for rel in delta.relations:
         # Ontology check
         if rel.predicate not in allowed_set:
-            errors.append(
-                f"Predicate '{rel.predicate}' not in allowed_predicates"
-            )
+            errors.append(f"Predicate '{rel.predicate}' not in allowed_predicates")
         # ID resolution
         if rel.subject_id not in tracks_index_keys:
             errors.append(
@@ -184,6 +183,7 @@ def validate_delta(
 # Repair
 # ---------------------------------------------------------------------------
 
+
 def repair_delta(
     delta: SceneGraphDelta,
     validation_errors: list[str],
@@ -216,8 +216,6 @@ def repair_delta(
         try:
             if hasattr(llm_client, "generate_scene_narrative"):
                 # Use the same LLM interface — pass prompt and get raw dict/str back
-                from app.scene_runtime_contracts import ScenePacket
-
                 raw = llm_client.generate_scene_narrative(repair_prompt, None)
             elif hasattr(llm_client, "invoke"):
                 response = llm_client.invoke(repair_prompt)
@@ -240,9 +238,7 @@ def repair_delta(
             repaired = SceneGraphDelta.model_validate(raw)
             return repaired, []
         except (ValidationError, json_mod.JSONDecodeError, Exception) as exc:
-            logger.warning(
-                "Repair attempt %d failed: %s", attempt + 1, exc
-            )
+            logger.warning("Repair attempt %d failed: %s", attempt + 1, exc)
             validation_errors = [f"Repair attempt {attempt + 1} failed: {exc}"]
 
     return None, validation_errors
@@ -308,10 +304,13 @@ def normalize_delta(delta: SceneGraphDelta) -> SceneGraphDelta:
     """
     try:
         import spacy
+
         try:
             nlp = spacy.load("en_core_web_sm")
         except OSError:
-            logger.warning("spaCy model 'en_core_web_sm' not found; skipping NER normalization")
+            logger.warning(
+                "spaCy model 'en_core_web_sm' not found; skipping NER normalization"
+            )
             nlp = None
     except ImportError:
         logger.warning("spaCy not installed; skipping normalization")

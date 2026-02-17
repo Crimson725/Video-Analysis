@@ -13,6 +13,7 @@ from app import jobs
 # 2.1 — Autouse fixture: clear job store before each test
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _clear_jobs():
     """Ensure every test starts with an empty job store."""
@@ -24,6 +25,7 @@ def _clear_jobs():
 # ---------------------------------------------------------------------------
 # 2.2 — Mock model loader fixture
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def mock_models():
@@ -39,6 +41,7 @@ def mock_models():
 # ---------------------------------------------------------------------------
 # 2.3 — YOLO result mock factory
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def make_yolo_result():
@@ -76,9 +79,15 @@ def make_yolo_result():
 
         if boxes is not None:
             box_mock = MagicMock(name="boxes")
-            box_mock.xyxy.cpu.return_value.numpy.return_value = np.array(boxes, dtype=np.float32)
-            box_mock.conf.cpu.return_value.numpy.return_value = np.array(confs or [0.9] * len(boxes), dtype=np.float32)
-            box_mock.cls.cpu.return_value.numpy.return_value = np.array(cls_ids or [0] * len(boxes), dtype=np.float32)
+            box_mock.xyxy.cpu.return_value.numpy.return_value = np.array(
+                boxes, dtype=np.float32
+            )
+            box_mock.conf.cpu.return_value.numpy.return_value = np.array(
+                confs or [0.9] * len(boxes), dtype=np.float32
+            )
+            box_mock.cls.cpu.return_value.numpy.return_value = np.array(
+                cls_ids or [0] * len(boxes), dtype=np.float32
+            )
             result.boxes = box_mock
         else:
             result.boxes = None
@@ -98,6 +107,7 @@ def make_yolo_result():
 # ---------------------------------------------------------------------------
 # 2.4 — Temporary directory fixture for file I/O tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def static_dir(tmp_path):

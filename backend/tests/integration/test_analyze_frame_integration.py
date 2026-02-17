@@ -17,6 +17,7 @@ JOB_ID = "test-analyze-job"
 # 7.2 — analyze_frame returns complete structured result
 # ---------------------------------------------------------------------------
 
+
 class TestAnalyzeFrameIntegration:
     def test_returns_dict_with_required_keys(self, sample_frame, models, static_dir):
         # Save original frame first (analyze_frame references it in file paths)
@@ -52,6 +53,7 @@ class TestAnalyzeFrameIntegration:
 # ---------------------------------------------------------------------------
 # 7.3 — analyze_frame produces visualization files
 # ---------------------------------------------------------------------------
+
 
 class TestAnalyzeFrameVisualization:
     def test_produces_all_visualization_files(self, sample_frame, models, static_dir):

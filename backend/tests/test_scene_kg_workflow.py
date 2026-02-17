@@ -52,19 +52,24 @@ def _make_frame(frame_id: int, timestamp: str = "00:00:00.000", **kwargs: Any) -
             "face": f"jobs/test/frames/face/frame_{frame_id}.jpg",
         },
         "analysis": {
-            "object_detection": kwargs.get("detections", [
-                {
-                    "track_id": "track_1",
-                    "label": "person",
-                    "confidence": 0.95,
-                    "box": [100, 100, 200, 300],
-                    "object_track_id": "obj_track_1",
-                },
-            ]),
+            "object_detection": kwargs.get(
+                "detections",
+                [
+                    {
+                        "track_id": "track_1",
+                        "label": "person",
+                        "confidence": 0.95,
+                        "box": [100, 100, 200, 300],
+                        "object_track_id": "obj_track_1",
+                    },
+                ],
+            ),
             "face_recognition": kwargs.get("faces", []),
             "semantic_segmentation": kwargs.get("segmentation", []),
         },
-        "analysis_artifacts": {"json": f"jobs/test/analysis/json/frame_{frame_id}.json"},
+        "analysis_artifacts": {
+            "json": f"jobs/test/analysis/json/frame_{frame_id}.json"
+        },
     }
 
 

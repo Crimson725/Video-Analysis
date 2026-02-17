@@ -54,6 +54,7 @@ class KGWorkflowState(TypedDict):
 # LLM extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_scene_graph_delta(
     packet_json: str,
     image_urls: list[str],
@@ -212,6 +213,7 @@ def repair_scene_graph_delta(
 # Workflow node functions
 # ---------------------------------------------------------------------------
 
+
 def _build_scene_bundle_node(
     state: KGWorkflowState,
     settings: "Settings",
@@ -244,7 +246,9 @@ def _build_llm_packet_node(
         return {"llm_packet": None}
     predicates = None
     if settings.kg_allowed_predicates:
-        predicates = [p.strip() for p in settings.kg_allowed_predicates.split(",") if p.strip()]
+        predicates = [
+            p.strip() for p in settings.kg_allowed_predicates.split(",") if p.strip()
+        ]
     packet = build_llm_packet(bundle, allowed_predicates=predicates)
     return {"llm_packet": packet.model_dump()}
 
@@ -305,14 +309,20 @@ def _validate_delta_node(
     bundle = state.get("scene_bundle")
 
     if delta is None:
-        return {"validation_errors": state.get("validation_errors", ["No delta to validate"])}
+        return {
+            "validation_errors": state.get(
+                "validation_errors", ["No delta to validate"]
+            )
+        }
 
     if bundle is None:
         return {"validation_errors": ["No scene bundle available for validation"]}
 
     allowed = DEFAULT_ALLOWED_PREDICATES
     if settings.kg_allowed_predicates:
-        allowed = [p.strip() for p in settings.kg_allowed_predicates.split(",") if p.strip()]
+        allowed = [
+            p.strip() for p in settings.kg_allowed_predicates.split(",") if p.strip()
+        ]
 
     errors = validate_delta(
         delta,
@@ -382,45 +392,51 @@ def qualify_delta_ids(
     # Entities
     entities: list[dict[str, Any]] = []
     for e in delta.entities:
-        entities.append({
-            "entity_uid": f"{job_id}:{e.entity_id}",
-            "entity_local_id": e.entity_id,
-            "type": e.type,
-            "attributes": dict(e.attributes),
-            "confidence": e.confidence,
-        })
+        entities.append(
+            {
+                "entity_uid": f"{job_id}:{e.entity_id}",
+                "entity_local_id": e.entity_id,
+                "type": e.type,
+                "attributes": dict(e.attributes),
+                "confidence": e.confidence,
+            }
+        )
 
     # Relations — carry subject_uid / object_uid
     relations: list[dict[str, Any]] = []
     for r in delta.relations:
-        relations.append({
-            "subject_uid": f"{job_id}:{r.subject_id}",
-            "object_uid": f"{job_id}:{r.object_id}",
-            "predicate": r.predicate,
-            "time_span_s": list(r.time_span_s),
-            "confidence": r.confidence,
-            "evidence": r.evidence.model_dump(),
-        })
+        relations.append(
+            {
+                "subject_uid": f"{job_id}:{r.subject_id}",
+                "object_uid": f"{job_id}:{r.object_id}",
+                "predicate": r.predicate,
+                "time_span_s": list(r.time_span_s),
+                "confidence": r.confidence,
+                "evidence": r.evidence.model_dump(),
+            }
+        )
 
     # Events — carry event_uid and participant entity_uids
     events: list[dict[str, Any]] = []
     for ev in delta.events:
-        events.append({
-            "event_uid": f"{scene_uid}:{ev.event_id}",
-            "event_id": ev.event_id,
-            "event_type": ev.event_type,
-            "participants": [
-                {
-                    "entity_uid": f"{job_id}:{p.entity_id}",
-                    "entity_id": p.entity_id,
-                    "role": p.role,
-                }
-                for p in ev.participants
-            ],
-            "time_span_s": list(ev.time_span_s),
-            "summary": ev.summary,
-            "confidence": ev.confidence,
-        })
+        events.append(
+            {
+                "event_uid": f"{scene_uid}:{ev.event_id}",
+                "event_id": ev.event_id,
+                "event_type": ev.event_type,
+                "participants": [
+                    {
+                        "entity_uid": f"{job_id}:{p.entity_id}",
+                        "entity_id": p.entity_id,
+                        "role": p.role,
+                    }
+                    for p in ev.participants
+                ],
+                "time_span_s": list(ev.time_span_s),
+                "summary": ev.summary,
+                "confidence": ev.confidence,
+            }
+        )
 
     return {
         "video_id": job_id,
@@ -494,6 +510,7 @@ def _merge_upsert_neo4j_node(
 # Validation routing
 # ---------------------------------------------------------------------------
 
+
 def _validation_router(state: KGWorkflowState, settings: "Settings") -> str:
     """Route after validation: normalize (pass), repair (fail+retries), or end."""
     errors = state.get("validation_errors", [])
@@ -514,6 +531,7 @@ def _validation_router(state: KGWorkflowState, settings: "Settings") -> str:
 # ---------------------------------------------------------------------------
 # Workflow builder
 # ---------------------------------------------------------------------------
+
 
 def build_kg_workflow(
     settings: "Settings",
@@ -593,7 +611,10 @@ def run_kg_workflow(
     """Execute the KG enrichment workflow for one scene."""
     if not LANGGRAPH_AVAILABLE:
         logger.warning("LangGraph not available; skipping KG workflow")
-        return {"neo4j_write_stats": {}, "validation_errors": ["LangGraph not available"]}
+        return {
+            "neo4j_write_stats": {},
+            "validation_errors": ["LangGraph not available"],
+        }
 
     graph = build_kg_workflow(settings, media_store, neo4j_writer)
 

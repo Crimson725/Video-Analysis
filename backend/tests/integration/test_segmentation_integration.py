@@ -16,6 +16,7 @@ JOB_ID = "test-seg-job"
 # 4.2 — run_segmentation returns structurally valid output
 # ---------------------------------------------------------------------------
 
+
 class TestRunSegmentationIntegration:
     def test_returns_list(self, sample_frame, models, static_dir):
         items = run_segmentation(
@@ -67,6 +68,7 @@ class TestRunSegmentationIntegration:
 # ---------------------------------------------------------------------------
 # 4.3 — run_segmentation saves a visualization file
 # ---------------------------------------------------------------------------
+
 
 class TestSegmentationVisualization:
     def test_saves_visualization_jpeg(self, sample_frame, models, static_dir):

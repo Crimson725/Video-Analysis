@@ -16,6 +16,7 @@ JOB_ID = "test-face-job"
 # 6.2 — run_face_recognition returns structurally valid output
 # ---------------------------------------------------------------------------
 
+
 class TestRunFaceRecognitionIntegration:
     def test_returns_list(self, sample_frame, models, static_dir):
         items = run_face_recognition(
@@ -69,6 +70,7 @@ class TestRunFaceRecognitionIntegration:
 # ---------------------------------------------------------------------------
 # 6.3 — run_face_recognition saves a visualization file
 # ---------------------------------------------------------------------------
+
 
 class TestFaceVisualization:
     def test_saves_visualization_jpeg(self, sample_frame, models, static_dir):

@@ -19,20 +19,16 @@ class TestSettings:
         assert settings.cleanup_local_video_after_upload_default is False
 
     def test_scene_pipeline_defaults(self, monkeypatch):
-        monkeypatch.delenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", raising=False)
         monkeypatch.delenv("SCENE_AI_EXECUTION_MODE", raising=False)
         monkeypatch.delenv("ENABLE_CORPUS_PIPELINE", raising=False)
         monkeypatch.delenv("ENABLE_CORPUS_INGEST", raising=False)
         monkeypatch.delenv("SCENE_MODEL_ID", raising=False)
-        monkeypatch.delenv("SYNOPSIS_MODEL_ID", raising=False)
         monkeypatch.delenv("EMBEDDING_MODEL_ID", raising=False)
         settings = Settings.from_env(autoload_dotenv=False)
-        assert settings.enable_scene_understanding_pipeline is True
         assert settings.scene_ai_execution_mode == "in_process"
         assert settings.enable_corpus_pipeline is True
         assert settings.enable_corpus_ingest is True
         assert settings.scene_model_id == "gemini-3-flash-preview"
-        assert settings.synopsis_model_id == "gemini-3-flash-preview"
         assert settings.embedding_model_id == "gemini-embedding-001"
 
     def test_scene_ai_queue_settings_parse(self, monkeypatch):
@@ -44,8 +40,6 @@ class TestSettings:
         monkeypatch.setenv("SCENE_AI_LEASE_TIMEOUT_SECONDS", "45")
         monkeypatch.setenv("SCENE_AI_FAILURE_POLICY", "fallback_empty")
         monkeypatch.setenv("SCENE_AI_WORKER_POLL_INTERVAL_SECONDS", "9")
-        monkeypatch.setenv("SCENE_AI_PROMPT_VERSION", "v2")
-        monkeypatch.setenv("SCENE_AI_RUNTIME_VERSION", "rt-2026")
         settings = Settings.from_env(autoload_dotenv=False)
 
         assert settings.scene_ai_execution_mode == "queue"
@@ -56,8 +50,6 @@ class TestSettings:
         assert settings.scene_ai_lease_timeout_seconds == 45
         assert settings.scene_ai_failure_policy == "fallback_empty"
         assert settings.scene_ai_worker_poll_interval_seconds == 9
-        assert settings.scene_ai_prompt_version == "v2"
-        assert settings.scene_ai_runtime_version == "rt-2026"
 
     def test_corpus_settings_parse(self, monkeypatch):
         monkeypatch.setenv("ENABLE_CORPUS_PIPELINE", "true")
@@ -115,7 +107,9 @@ class TestSettings:
         assert settings.face_identity_ambiguity_margin == 0.03
         assert settings.face_identity_model_id == "edgeface_s_gamma_05"
 
-    def test_face_identity_legacy_alias_normalizes_to_default_profile(self, monkeypatch):
+    def test_face_identity_legacy_alias_normalizes_to_default_profile(
+        self, monkeypatch
+    ):
         monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "edgeface-arcface-torch")
 
         settings = Settings.from_env(autoload_dotenv=False)
@@ -129,7 +123,9 @@ class TestSettings:
         with pytest.raises(ValueError, match="Unsupported FACE_IDENTITY_MODEL_ID"):
             Settings.from_env(autoload_dotenv=False)
 
-    def test_invalid_face_identity_model_id_is_ignored_when_pipeline_disabled(self, monkeypatch):
+    def test_invalid_face_identity_model_id_is_ignored_when_pipeline_disabled(
+        self, monkeypatch
+    ):
         monkeypatch.setenv("ENABLE_FACE_IDENTITY_PIPELINE", "false")
         monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "not-a-real-profile")
 
@@ -138,7 +134,7 @@ class TestSettings:
         assert settings.face_identity_model_id == "edgeface_s_gamma_05"
 
     def test_missing_llm_fields_only_when_pipeline_enabled(self, monkeypatch):
-        monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")
+        monkeypatch.setenv("KG_PIPELINE_ENABLED", "true")
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         settings = Settings.from_env(autoload_dotenv=False)
         assert settings.missing_llm_fields() == ["GOOGLE_API_KEY"]
@@ -167,7 +163,9 @@ class TestSettings:
         object.__setattr__(settings, "face_identity_model_id", "")
         assert settings.missing_face_identity_fields() == ["FACE_IDENTITY_MODEL_ID"]
 
-    def test_autoloads_google_api_key_from_dotenv_local(self, monkeypatch, tmp_path: Path):
+    def test_autoloads_google_api_key_from_dotenv_local(
+        self, monkeypatch, tmp_path: Path
+    ):
         monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         env_local = tmp_path / ".env.local"
         env_local.write_text("GOOGLE_API_KEY=file-key\n", encoding="utf-8")

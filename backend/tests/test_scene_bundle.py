@@ -28,6 +28,7 @@ from app.scene_bundle import (
 # Helper: build fake scene frame dicts
 # ---------------------------------------------------------------------------
 
+
 def _make_frame(
     frame_id: int,
     timestamp: str = "00:00:00.000",
@@ -49,11 +50,15 @@ def _make_frame(
             "face_recognition": faces or [],
             "semantic_segmentation": segmentation or [],
         },
-        "analysis_artifacts": {"json": f"jobs/test/analysis/json/frame_{frame_id}.json"},
+        "analysis_artifacts": {
+            "json": f"jobs/test/analysis/json/frame_{frame_id}.json"
+        },
     }
 
 
-def _make_detection(track_id: str, label: str, box: list, conf: float = 0.9, **kwargs) -> dict:
+def _make_detection(
+    track_id: str, label: str, box: list, conf: float = 0.9, **kwargs
+) -> dict:
     det = {
         "track_id": track_id,
         "label": label,
@@ -102,7 +107,9 @@ class TestKeyframeSelection:
         """Even with many trigger events, cap must be respected."""
         frames = []
         for i in range(30):
-            dets = [_make_detection(f"track_{i % 5}", "obj", [10 * i, 10, 10 * i + 50, 200])]
+            dets = [
+                _make_detection(f"track_{i % 5}", "obj", [10 * i, 10, 10 * i + 50, 200])
+            ]
             frames.append(_make_frame(i, f"00:00:{i:02d}.000", detections=dets))
         selected = select_keyframes(frames, max_keyframes=5)
         assert len(selected) <= 5
@@ -127,7 +134,9 @@ class TestKeyframeSelection:
             dist = 500 - i * 60  # tracks converge
             dets = [
                 _make_detection("track_a", "person", [100, 100, 200, 200]),
-                _make_detection("track_b", "person", [100 + dist, 100, 200 + dist, 200]),
+                _make_detection(
+                    "track_b", "person", [100 + dist, 100, 200 + dist, 200]
+                ),
             ]
             frames.append(_make_frame(i, f"00:00:{i:02d}.000", detections=dets))
         selected = select_keyframes(
@@ -339,13 +348,23 @@ class TestTracksIndex:
             _make_frame(
                 0,
                 detections=[
-                    _make_detection("track_a", "person", [10, 10, 100, 200], object_track_id="obj_track_a"),
+                    _make_detection(
+                        "track_a",
+                        "person",
+                        [10, 10, 100, 200],
+                        object_track_id="obj_track_a",
+                    ),
                 ],
             ),
             _make_frame(
                 1,
                 detections=[
-                    _make_detection("track_a", "person", [15, 15, 105, 205], object_track_id="obj_track_a"),
+                    _make_detection(
+                        "track_a",
+                        "person",
+                        [15, 15, 105, 205],
+                        object_track_id="obj_track_a",
+                    ),
                 ],
             ),
         ]
@@ -379,7 +398,9 @@ class TestBuildSceneBundle:
                 i,
                 f"00:00:{i:02d}.000",
                 detections=[
-                    _make_detection("track_a", "person", [10 + i * 5, 10, 100 + i * 5, 200]),
+                    _make_detection(
+                        "track_a", "person", [10 + i * 5, 10, 100 + i * 5, 200]
+                    ),
                 ],
             )
             for i in range(10)

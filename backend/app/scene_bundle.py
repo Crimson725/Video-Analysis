@@ -68,8 +68,9 @@ class SceneBundle:
 
 
 # ---------------------------------------------------------------------------
-# Keyframe selection
+# Timestamp parsing
 # ---------------------------------------------------------------------------
+
 
 def _frame_timestamp(frame: dict[str, Any]) -> float:
     """Parse frame timestamp to float seconds."""
@@ -83,6 +84,30 @@ def _frame_timestamp(frame: dict[str, Any]) -> float:
         return float(ts)
     except (ValueError, TypeError):
         return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Frame selection utilities
+# ---------------------------------------------------------------------------
+
+
+def select_scene_frames(
+    frame_results: list[dict[str, Any]],
+    start_sec: float,
+    end_sec: float,
+) -> list[dict[str, Any]]:
+    """Select frames whose timestamp falls within [start_sec, end_sec]."""
+    selected: list[dict[str, Any]] = []
+    for frame in frame_results:
+        ts = _frame_timestamp(frame)
+        if start_sec <= ts <= end_sec:
+            selected.append(frame)
+    return selected
+
+
+# ---------------------------------------------------------------------------
+# Keyframe selection
+# ---------------------------------------------------------------------------
 
 
 def _centroid_from_bbox(bbox: list[int | float]) -> tuple[float, float]:
@@ -154,9 +179,9 @@ def select_keyframes(
     if not scene_frames:
         return []
 
-    sorted_frames = sorted(scene_frames, key=lambda f: (
-        _frame_timestamp(f), int(f.get("frame_id", 0))
-    ))
+    sorted_frames = sorted(
+        scene_frames, key=lambda f: (_frame_timestamp(f), int(f.get("frame_id", 0)))
+    )
     frame_ids = [int(f.get("frame_id", 0)) for f in sorted_frames]
 
     if len(frame_ids) <= 2:
@@ -244,7 +269,9 @@ def select_keyframes(
     if len(result) > max_keyframes:
         # Keep first, last, plus highest-scoring
         first_last = {result[0], result[-1]}
-        middle = [(fid, scores.get(fid, 0.0)) for fid in result if fid not in first_last]
+        middle = [
+            (fid, scores.get(fid, 0.0)) for fid in result if fid not in first_last
+        ]
         middle.sort(key=lambda x: -x[1])
         keep = first_last | {fid for fid, _ in middle[: max_keyframes - 2]}
         result = sorted(keep)
@@ -256,12 +283,15 @@ def select_keyframes(
 # Derived numeric features
 # ---------------------------------------------------------------------------
 
+
 def compute_bbox_centroid(bbox: list[int | float]) -> tuple[float, float]:
     """Compute centroid from [x1, y1, x2, y2]."""
     return _centroid_from_bbox(bbox)
 
 
-def compute_bbox_area_pct(bbox: list[int | float], frame_width: int, frame_height: int) -> float:
+def compute_bbox_area_pct(
+    bbox: list[int | float], frame_width: int, frame_height: int
+) -> float:
     """Compute bbox area as percentage of frame area."""
     if frame_width <= 0 or frame_height <= 0:
         return 0.0
@@ -301,8 +331,12 @@ def compute_iou(bbox_a: list[int | float], bbox_b: list[int | float]) -> float:
     x2 = min(float(bbox_a[2]), float(bbox_b[2]))
     y2 = min(float(bbox_a[3]), float(bbox_b[3]))
     inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
-    area_a = abs(float(bbox_a[2]) - float(bbox_a[0])) * abs(float(bbox_a[3]) - float(bbox_a[1]))
-    area_b = abs(float(bbox_b[2]) - float(bbox_b[0])) * abs(float(bbox_b[3]) - float(bbox_b[1]))
+    area_a = abs(float(bbox_a[2]) - float(bbox_a[0])) * abs(
+        float(bbox_a[3]) - float(bbox_a[1])
+    )
+    area_b = abs(float(bbox_b[2]) - float(bbox_b[0])) * abs(
+        float(bbox_b[3]) - float(bbox_b[1])
+    )
     union = area_a + area_b - inter
     if union <= 0:
         return 0.0
@@ -380,20 +414,24 @@ def compute_derived_features_for_frame(
             c_a, c_b = features.centroids[id_a], features.centroids[id_b]
             dist = _euclidean(c_a, c_b)
 
-            features.pairwise_distances.append({
-                "track_a": id_a,
-                "track_b": id_b,
-                "distance": round(dist, 2),
-            })
+            features.pairwise_distances.append(
+                {
+                    "track_a": id_a,
+                    "track_b": id_b,
+                    "distance": round(dist, 2),
+                }
+            )
 
             # IoU if both have bboxes
             if id_a in track_bboxes and id_b in track_bboxes:
                 iou = compute_iou(track_bboxes[id_a], track_bboxes[id_b])
-                features.pairwise_iou.append({
-                    "track_a": id_a,
-                    "track_b": id_b,
-                    "iou": round(iou, 4),
-                })
+                features.pairwise_iou.append(
+                    {
+                        "track_a": id_a,
+                        "track_b": id_b,
+                        "iou": round(iou, 4),
+                    }
+                )
 
             # Spatial ordering
             features.spatial_ordering.extend(
@@ -402,10 +440,12 @@ def compute_derived_features_for_frame(
 
             # Near edges
             if dist < near_threshold:
-                features.near_edges.append({
-                    "track_a": id_a,
-                    "track_b": id_b,
-                })
+                features.near_edges.append(
+                    {
+                        "track_a": id_a,
+                        "track_b": id_b,
+                    }
+                )
 
     # Velocities across frames
     if prev_centroids is not None and prev_timestamp is not None:
@@ -422,6 +462,7 @@ def compute_derived_features_for_frame(
 # ---------------------------------------------------------------------------
 # Overlay image generation
 # ---------------------------------------------------------------------------
+
 
 def generate_overlay_image(
     original_image_bytes: bytes,
@@ -440,7 +481,9 @@ def generate_overlay_image(
 
     # Try to get a reasonable font
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16
+        )
     except (OSError, IOError):
         try:
             font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 16)
@@ -451,9 +494,18 @@ def generate_overlay_image(
 
     # Color palette for tracks
     colors = [
-        (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
-        (255, 0, 255), (0, 255, 255), (128, 0, 0), (0, 128, 0),
-        (0, 0, 128), (128, 128, 0), (128, 0, 128), (0, 128, 128),
+        (255, 0, 0),
+        (0, 255, 0),
+        (0, 0, 255),
+        (255, 255, 0),
+        (255, 0, 255),
+        (0, 255, 255),
+        (128, 0, 0),
+        (0, 128, 0),
+        (0, 0, 128),
+        (128, 128, 0),
+        (128, 0, 128),
+        (0, 128, 128),
     ]
     color_idx = 0
 
@@ -477,7 +529,9 @@ def generate_overlay_image(
             text_w = bbox_text[2] - bbox_text[0]
             text_h = bbox_text[3] - bbox_text[1]
             draw.rectangle([x1, y1 - text_h - 4, x1 + text_w + 4, y1], fill=color)
-            draw.text((x1 + 2, y1 - text_h - 2), label_text, fill=(255, 255, 255), font=font)
+            draw.text(
+                (x1 + 2, y1 - text_h - 2), label_text, fill=(255, 255, 255), font=font
+            )
 
     # Draw face bboxes and person ID labels
     for face in analysis.get("face_recognition", []):
@@ -514,6 +568,7 @@ def generate_overlay_image(
 # ---------------------------------------------------------------------------
 # Track index builder
 # ---------------------------------------------------------------------------
+
 
 def build_tracks_index(
     scene_frames: list[dict[str, Any]],
@@ -585,7 +640,9 @@ def build_tracks_index(
     # Compute mean confidences
     for tid, meta in tracks.items():
         if meta.frame_ids:
-            meta.confidence_mean = 1.0  # Default since we don't track per-frame conf here
+            meta.confidence_mean = (
+                1.0  # Default since we don't track per-frame conf here
+            )
 
     return tracks
 
@@ -593,6 +650,7 @@ def build_tracks_index(
 # ---------------------------------------------------------------------------
 # Full SceneBundle builder
 # ---------------------------------------------------------------------------
+
 
 def build_scene_bundle(
     *,
@@ -676,7 +734,9 @@ def build_scene_bundle(
                 original_bytes = media_store.read_object(original_key)
                 overlay_bytes = generate_overlay_image(original_bytes, frame)
                 # Upload overlay using a scene artifact pattern
-                overlay_obj_key = f"jobs/{job_id}/scene/overlays/scene_{scene_id}_frame_{fid}.png"
+                overlay_obj_key = (
+                    f"jobs/{job_id}/scene/overlays/scene_{scene_id}_frame_{fid}.png"
+                )
                 media_store._put_object(overlay_obj_key, overlay_bytes, "image/png")
                 overlay_key = overlay_obj_key
             except Exception:

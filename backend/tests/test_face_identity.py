@@ -92,7 +92,10 @@ def test_video_identity_stitching_merges_scene_clusters_for_same_person():
     right = scene_to_video["scene_1_person_1"]["video_person_id"]
     assert left == right
     assert len(summary) == 1
-    assert sorted(summary[0]["scene_person_ids"]) == ["scene_0_person_1", "scene_1_person_1"]
+    assert sorted(summary[0]["scene_person_ids"]) == [
+        "scene_0_person_1",
+        "scene_1_person_1",
+    ]
 
 
 def test_video_identity_stitching_splits_distinct_people():
@@ -166,7 +169,9 @@ def test_embedder_uses_deterministic_fallback_when_weights_missing(tmp_path):
 
 def test_embedder_falls_back_when_checkpoint_is_incompatible(tmp_path):
     incompatible_weights = tmp_path / "incompatible_edgeface_weights.pt"
-    torch.save({"state_dict": {"not_a_real_weight": torch.ones(1)}}, incompatible_weights)
+    torch.save(
+        {"state_dict": {"not_a_real_weight": torch.ones(1)}}, incompatible_weights
+    )
     embedder = EdgeFaceTorchEmbedder(
         device=torch.device("cpu"),
         model_id="edgeface_s_gamma_05",

@@ -320,7 +320,10 @@ class InMemorySceneTaskQueue:
         now = _utcnow()
         with self._lock:
             for task in self._tasks.values():
-                if task.idempotency_key == idempotency_key and task.status in _ACTIVE_STATUSES:
+                if (
+                    task.idempotency_key == idempotency_key
+                    and task.status in _ACTIVE_STATUSES
+                ):
                     return task
             task = SceneTask(
                 task_id=str(uuid4()),
@@ -356,7 +359,9 @@ class InMemorySceneTaskQueue:
             ]
             if not candidates:
                 return None
-            candidates.sort(key=lambda task: (task.next_attempt_at, task.created_at, task.task_id))
+            candidates.sort(
+                key=lambda task: (task.next_attempt_at, task.created_at, task.task_id)
+            )
             task = candidates[0]
             task.status = QUEUE_STATUS_PROCESSING
             task.attempts += 1
@@ -533,7 +538,9 @@ class PostgresSceneTaskQueue:
                     )
                     row = cur.fetchone()
                 if row is None:
-                    raise RuntimeError("Failed to enqueue or fetch active scene AI task")
+                    raise RuntimeError(
+                        "Failed to enqueue or fetch active scene AI task"
+                    )
             conn.commit()
         return self._row_to_task(row)
 
@@ -567,7 +574,9 @@ class PostgresSceneTaskQueue:
                     {
                         "task_id": task_id,
                         "lease_owner": lease_owner,
-                        "result_metadata": json.dumps(result_metadata, separators=(",", ":")),
+                        "result_metadata": json.dumps(
+                            result_metadata, separators=(",", ":")
+                        ),
                     },
                 )
                 row = cur.fetchone()
@@ -593,7 +602,9 @@ class PostgresSceneTaskQueue:
                         "task_id": task_id,
                         "lease_owner": lease_owner,
                         "last_error": last_error,
-                        "error_metadata": json.dumps(error_metadata, separators=(",", ":")),
+                        "error_metadata": json.dumps(
+                            error_metadata, separators=(",", ":")
+                        ),
                         "next_attempt_at": next_attempt_at.astimezone(UTC),
                     },
                 )
@@ -623,7 +634,9 @@ class PostgresSceneTaskQueue:
                         "lease_owner": lease_owner,
                         "status": status,
                         "last_error": last_error,
-                        "error_metadata": json.dumps(error_metadata, separators=(",", ":")),
+                        "error_metadata": json.dumps(
+                            error_metadata, separators=(",", ":")
+                        ),
                     },
                 )
                 row = cur.fetchone()

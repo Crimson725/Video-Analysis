@@ -12,6 +12,7 @@ from app import jobs
 # 5.1 — Async client fixture with patched ModelLoader and scheduler
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 async def client():
     """Yield an httpx AsyncClient connected to the FastAPI app.
@@ -28,8 +29,8 @@ async def client():
         mock_cleanup.setup_scheduler = MagicMock()
         mock_cleanup.shutdown_scheduler = MagicMock()
         mock_store = MagicMock(name="MockMediaStore")
-        mock_store.sign_read_url.side_effect = (
-            lambda key, expires_in=None: f"https://signed.example/{key}?exp={expires_in or 3600}"
+        mock_store.sign_read_url.side_effect = lambda key, expires_in=None: (
+            f"https://signed.example/{key}?exp={expires_in or 3600}"
         )
         mock_get_media_store.return_value = mock_store
 
@@ -43,6 +44,7 @@ async def client():
 # ---------------------------------------------------------------------------
 # 5.2 — POST /analyze-video happy path
 # ---------------------------------------------------------------------------
+
 
 class TestAnalyzeVideoHappyPath:
     async def test_valid_upload_returns_202_with_job_id(self, client):
@@ -75,6 +77,7 @@ class TestAnalyzeVideoHappyPath:
 # 5.3 — POST /analyze-video error paths
 # ---------------------------------------------------------------------------
 
+
 class TestAnalyzeVideoErrors:
     async def test_empty_filename_returns_422(self, client):
         response = await client.post(
@@ -99,6 +102,7 @@ class TestAnalyzeVideoErrors:
 # ---------------------------------------------------------------------------
 # 5.4 — GET /status/{job_id}
 # ---------------------------------------------------------------------------
+
 
 class TestGetStatus:
     async def test_processing_job(self, client):
@@ -152,6 +156,7 @@ class TestGetStatus:
 # 5.5 — GET /results/{job_id}
 # ---------------------------------------------------------------------------
 
+
 class TestGetResults:
     async def test_completed_job_returns_results(self, client):
         job_id = jobs.create_job()
@@ -188,24 +193,6 @@ class TestGetResults:
                     },
                 }
             ],
-            "scene_narratives": [
-                {
-                    "scene_id": 0,
-                    "start_sec": 0.0,
-                    "end_sec": 5.0,
-                    "narrative_paragraph": "Scene summary.",
-                    "key_moments": ["moment 1"],
-                    "artifacts": {
-                        "packet": f"jobs/{job_id}/scene/packets/scene_0.json",
-                        "narrative": f"jobs/{job_id}/scene/narratives/scene_0.json",
-                    },
-                }
-            ],
-            "video_synopsis": {
-                "synopsis": "Video synopsis.",
-                "artifact": f"jobs/{job_id}/summary/synopsis.json",
-                "model": "gemini-3-flash-preview",
-            },
             "video_object_tracks": {
                 "enabled": True,
                 "method": "object_tracking_v1",
@@ -214,7 +201,12 @@ class TestGetResults:
                         "object_track_id": "object_track_1",
                         "label": "car",
                         "source_track_id": "car_7",
-                        "confidence": {"mean": 0.9, "max": 0.95, "min": 0.85, "samples": 2},
+                        "confidence": {
+                            "mean": 0.9,
+                            "max": 0.95,
+                            "min": 0.85,
+                            "samples": 2,
+                        },
                         "frame_span": {
                             "first_frame_id": 0,
                             "last_frame_id": 0,
@@ -248,13 +240,17 @@ class TestGetResults:
         data = response.json()
         assert data["job_id"] == job_id
         assert len(data["frames"]) == 1
-        assert data["frames"][0]["files"]["original"].startswith("https://signed.example/jobs/")
-        assert data["frames"][0]["analysis_artifacts"]["json"].startswith("https://signed.example/jobs/")
+        assert data["frames"][0]["files"]["original"].startswith(
+            "https://signed.example/jobs/"
+        )
+        assert data["frames"][0]["analysis_artifacts"]["json"].startswith(
+            "https://signed.example/jobs/"
+        )
         assert "toon" not in data["frames"][0]["analysis_artifacts"]
-        assert data["scene_narratives"][0]["artifacts"]["packet"].startswith("https://signed.example/jobs/")
-        assert data["scene_narratives"][0]["artifacts"]["narrative"].startswith("https://signed.example/jobs/")
-        assert data["video_synopsis"]["artifact"].startswith("https://signed.example/jobs/")
-        assert data["video_object_tracks"]["tracks"][0]["object_track_id"] == "object_track_1"
+        assert (
+            data["video_object_tracks"]["tracks"][0]["object_track_id"]
+            == "object_track_1"
+        )
 
     async def test_processing_job_returns_409(self, client):
         job_id = jobs.create_job()
@@ -276,7 +272,9 @@ class TestGetResults:
 
         assert response.status_code == 404
 
-    async def test_queue_stage_results_contract_remains_409_while_processing(self, client):
+    async def test_queue_stage_results_contract_remains_409_while_processing(
+        self, client
+    ):
         job_id = jobs.create_job(metadata={"stage": "scene_ai_processing"})
 
         response = await client.get(f"/results/{job_id}")

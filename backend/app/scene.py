@@ -29,9 +29,7 @@ def _format_timestamp(seconds_total: float) -> str:
     return f"{hours:02d}:{mins:02d}:{secs:06.3f}"
 
 
-def extract_keyframes(
-    video_path: str, scenes: list[tuple[float, float]]
-) -> list[dict]:
+def extract_keyframes(video_path: str, scenes: list[tuple[float, float]]) -> list[dict]:
     """
     Extract the middle keyframe of each scene.
     Returns list of dicts with frame_id, timestamp, image (numpy array BGR).
@@ -132,7 +130,9 @@ def save_original_frames(
         if media_store is not None:
             ok, encoded = cv2.imencode(".jpg", image)
             if not ok:
-                raise RuntimeError(f"Failed to encode original frame {frame_id} as JPEG")
+                raise RuntimeError(
+                    f"Failed to encode original frame {frame_id} as JPEG"
+                )
             media_store.upload_frame_image(
                 job_id=job_id,
                 frame_kind="original",

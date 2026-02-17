@@ -13,7 +13,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import analysis, cleanup, corpus, jobs, scene, video_understanding
+from app import analysis, cleanup, corpus, jobs, scene
 from app.scene_ai_worker_contracts import SceneWorkerTaskInput
 from app.scene_task_queue import PostgresSceneTaskQueue, build_postgres_scene_task_queue
 from app.config import Settings
@@ -49,14 +49,19 @@ def get_scene_task_queue() -> PostgresSceneTaskQueue:
     """Build and cache the Postgres queue client used for scene worker dispatch."""
     global _scene_task_queue
     if _scene_task_queue is None:
-        _scene_task_queue = build_postgres_scene_task_queue(dsn=SETTINGS.scene_ai_queue_dsn)
+        _scene_task_queue = build_postgres_scene_task_queue(
+            dsn=SETTINGS.scene_ai_queue_dsn
+        )
     return _scene_task_queue
 
 
 def _queue_mode_enabled() -> bool:
     return (
-        bool(getattr(SETTINGS, "enable_scene_understanding_pipeline", False))
-        and str(getattr(SETTINGS, "scene_ai_execution_mode", "in_process")).strip().lower() == "queue"
+        bool(getattr(SETTINGS, "kg_pipeline_enabled", False))
+        and str(getattr(SETTINGS, "scene_ai_execution_mode", "in_process"))
+        .strip()
+        .lower()
+        == "queue"
     )
 
 
@@ -69,14 +74,6 @@ def _startup_validate_settings() -> None:
             "Video processing and signed result URLs will fail until configured.",
             ", ".join(missing),
         )
-    if SETTINGS.enable_scene_understanding_pipeline:
-        missing_llm = SETTINGS.missing_llm_fields()
-        if missing_llm:
-            logger.warning(
-                "Scene understanding pipeline enabled with missing settings: %s. "
-                "Gemini client may be unavailable and runtime will use fallback generation.",
-                ", ".join(missing_llm),
-            )
     if bool(getattr(SETTINGS, "enable_face_identity_pipeline", False)):
         missing_face_identity = SETTINGS.missing_face_identity_fields()
         if missing_face_identity:
@@ -129,7 +126,9 @@ def _extract_source_extension(filename: str | None) -> str:
     return normalized or "mp4"
 
 
-def _resolve_video_content_type(upload_content_type: str | None, source_extension: str) -> str:
+def _resolve_video_content_type(
+    upload_content_type: str | None, source_extension: str
+) -> str:
     """Resolve source video content type for R2 metadata."""
     if upload_content_type and "/" in upload_content_type:
         return upload_content_type
@@ -144,40 +143,6 @@ def _resolve_cleanup_policy(request_override: bool | None) -> bool:
     if request_override is None:
         return SETTINGS.cleanup_local_video_after_upload_default
     return request_override
-
-
-def _default_scene_outputs() -> dict[str, Any]:
-    """Return stable default scene-understanding outputs."""
-    return {
-        "scene_narratives": [],
-        "video_synopsis": None,
-    }
-
-
-def _normalize_scene_outputs(raw_scene_outputs: Any) -> dict[str, Any]:
-    """Normalize scene-understanding outputs to a stable response shape."""
-    defaults = _default_scene_outputs()
-    if not isinstance(raw_scene_outputs, dict):
-        return defaults
-
-    raw_scene_narratives = raw_scene_outputs.get("scene_narratives", [])
-    if not isinstance(raw_scene_narratives, list):
-        scene_narratives: list[dict[str, Any]] = []
-    else:
-        scene_narratives = [
-            item
-            for item in raw_scene_narratives
-            if isinstance(item, dict)
-        ]
-
-    video_synopsis = raw_scene_outputs.get("video_synopsis")
-    if not isinstance(video_synopsis, dict):
-        video_synopsis = None
-
-    return {
-        "scene_narratives": scene_narratives,
-        "video_synopsis": video_synopsis,
-    }
 
 
 def _build_local_source_path(job_id: str, source_extension: str) -> Path:
@@ -196,7 +161,9 @@ def _to_signed_url_if_needed(value: Any, media_store: MediaStore) -> str:
     return value
 
 
-def _materialize_signed_file_map(raw_files: Any, media_store: MediaStore) -> dict[str, str]:
+def _materialize_signed_file_map(
+    raw_files: Any, media_store: MediaStore
+) -> dict[str, str]:
     """Sign frame file references while dropping invalid/empty values."""
     files: dict[str, str] = {}
     for name, value in raw_files.items():
@@ -206,14 +173,18 @@ def _materialize_signed_file_map(raw_files: Any, media_store: MediaStore) -> dic
     return files
 
 
-def _normalize_object_detection(raw_analysis: dict[str, Any], frame_id: int) -> list[dict[str, Any]]:
+def _normalize_object_detection(
+    raw_analysis: dict[str, Any], frame_id: int
+) -> list[dict[str, Any]]:
     """Normalize object detections and fill missing track identifiers."""
     normalized_items: list[dict[str, Any]] = []
     for index, item in enumerate(raw_analysis.get("object_detection", [])):
         if not isinstance(item, dict):
             continue
         normalized = dict(item)
-        normalized["track_id"] = normalized.get("track_id") or f"track_{frame_id}_{index + 1}"
+        normalized["track_id"] = (
+            normalized.get("track_id") or f"track_{frame_id}_{index + 1}"
+        )
         normalized_items.append(normalized)
     return normalized_items
 
@@ -294,57 +265,9 @@ def _materialize_frame_result(
     }
 
 
-def _materialize_scene_corpus(scene_narrative: dict[str, Any], media_store: MediaStore) -> dict[str, Any] | None:
-    """Materialize optional scene-level corpus artifact URLs."""
-    scene_corpus = scene_narrative.get("corpus")
-    if not scene_corpus:
-        return None
-    return {
-        **(scene_corpus or {}),
-        "artifacts": {
-            "graph_bundle": _to_signed_url_if_needed(
-                (scene_corpus or {}).get("artifacts", {}).get("graph_bundle"),
-                media_store,
-            ),
-            "retrieval_bundle": _to_signed_url_if_needed(
-                (scene_corpus or {}).get("artifacts", {}).get("retrieval_bundle"),
-                media_store,
-            ),
-        },
-    }
-
-
-def _materialize_scene_narrative(scene_narrative: dict[str, Any], media_store: MediaStore) -> dict[str, Any]:
-    """Materialize one scene narrative with signed artifact URLs."""
-    raw_artifacts = scene_narrative.get("artifacts", {})
-    return {
-        "scene_id": scene_narrative.get("scene_id"),
-        "start_sec": scene_narrative.get("start_sec"),
-        "end_sec": scene_narrative.get("end_sec"),
-        "narrative_paragraph": scene_narrative.get("narrative_paragraph", ""),
-        "key_moments": scene_narrative.get("key_moments", []),
-        "artifacts": {
-            "packet": _to_signed_url_if_needed(raw_artifacts.get("packet"), media_store),
-            "narrative": _to_signed_url_if_needed(raw_artifacts.get("narrative"), media_store),
-        },
-        "corpus": _materialize_scene_corpus(scene_narrative, media_store),
-        "trace": scene_narrative.get("trace"),
-    }
-
-
-def _materialize_video_synopsis(raw_summary: Any, media_store: MediaStore) -> dict[str, Any] | None:
-    """Materialize optional video synopsis payload."""
-    if not isinstance(raw_summary, dict):
-        return None
-    return {
-        "synopsis": raw_summary.get("synopsis", ""),
-        "artifact": _to_signed_url_if_needed(raw_summary.get("artifact"), media_store),
-        "model": raw_summary.get("model", ""),
-        "trace": raw_summary.get("trace"),
-    }
-
-
-def _materialize_corpus_payload(raw_corpus: Any, media_store: MediaStore) -> dict[str, Any] | None:
+def _materialize_corpus_payload(
+    raw_corpus: Any, media_store: MediaStore
+) -> dict[str, Any] | None:
     """Materialize optional corpus payload artifact URLs."""
     if not isinstance(raw_corpus, dict):
         return None
@@ -363,13 +286,13 @@ def _materialize_corpus_payload(raw_corpus: Any, media_store: MediaStore) -> dic
     return materialized
 
 
-def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store: MediaStore) -> dict[str, Any]:
+def _materialize_signed_result_urls(
+    result_payload: dict[str, Any], media_store: MediaStore
+) -> dict[str, Any]:
     """Convert stored object keys to signed URLs for API responses."""
     payload: dict[str, Any] = {
         "job_id": result_payload.get("job_id"),
         "frames": [],
-        "scene_narratives": [],
-        "video_synopsis": None,
         "corpus": None,
         "video_face_identities": result_payload.get("video_face_identities"),
         "video_person_tracks": result_payload.get("video_person_tracks"),
@@ -394,17 +317,9 @@ def _materialize_signed_result_urls(result_payload: dict[str, Any], media_store:
             )
         )
 
-    raw_scene_narratives = result_payload.get("scene_narratives", [])
-    if not isinstance(raw_scene_narratives, list):
-        raw_scene_narratives = []
-
-    for scene_narrative in raw_scene_narratives:
-        if not isinstance(scene_narrative, dict):
-            continue
-        payload["scene_narratives"].append(_materialize_scene_narrative(scene_narrative, media_store))
-
-    payload["video_synopsis"] = _materialize_video_synopsis(result_payload.get("video_synopsis"), media_store)
-    payload["corpus"] = _materialize_corpus_payload(result_payload.get("corpus"), media_store)
+    payload["corpus"] = _materialize_corpus_payload(
+        result_payload.get("corpus"), media_store
+    )
     return payload
 
 
@@ -465,31 +380,6 @@ def _collect_required_artifact_keys(
             warning_template="upload.verify.invalid_analysis_key job_id=%s frame_id=%s value=%s",
             warning_context=(job_id, frame_id),
         )
-    for scene_narrative in result_payload.get("scene_narratives", []):
-        scene_id = scene_narrative.get("scene_id")
-        _collect_required_keys_from_values(
-            required=required,
-            values=scene_narrative.get("artifacts", {}).values(),
-            warning_template="upload.verify.invalid_scene_key job_id=%s scene_id=%s value=%s",
-            warning_context=(job_id, scene_id),
-        )
-        scene_corpus = scene_narrative.get("corpus") or {}
-        _collect_required_keys_from_values(
-            required=required,
-            values=scene_corpus.get("artifacts", {}).values(),
-            warning_template="upload.verify.invalid_scene_corpus_key job_id=%s scene_id=%s value=%s",
-            warning_context=(job_id, scene_id),
-        )
-
-    video_synopsis = result_payload.get("video_synopsis")
-    if isinstance(video_synopsis, dict):
-        object_key = video_synopsis.get("artifact")
-        _add_required_key_or_log(
-            required=required,
-            object_key=object_key,
-            warning_template="upload.verify.invalid_synopsis_key job_id=%s value=%s",
-            warning_context=(job_id,),
-        )
 
     corpus_payload = result_payload.get("corpus")
     if isinstance(corpus_payload, dict):
@@ -502,7 +392,9 @@ def _collect_required_artifact_keys(
     return required
 
 
-def _verify_required_artifacts(media_store: MediaStore, job_id: str, required_keys: set[str]) -> None:
+def _verify_required_artifacts(
+    media_store: MediaStore, job_id: str, required_keys: set[str]
+) -> None:
     """Verify required objects exist in R2 before marking a job complete."""
     missing = sorted(key for key in required_keys if not media_store.verify_object(key))
     if missing:
@@ -516,7 +408,9 @@ def _verify_required_artifacts(media_store: MediaStore, job_id: str, required_ke
         raise MediaStoreError(
             f"Upload verification failed for {len(missing)} artifact(s); sample: {preview}"
         )
-    logger.info("upload.verify.success job_id=%s artifact_count=%s", job_id, len(required_keys))
+    logger.info(
+        "upload.verify.success job_id=%s artifact_count=%s", job_id, len(required_keys)
+    )
 
 
 def _finalize_local_source_video(
@@ -532,7 +426,9 @@ def _finalize_local_source_video(
         try:
             source_path.unlink()
             cleanup.clear_job_source_retention_marker(str(TEMP_MEDIA_DIR), job_id)
-            logger.info("cleanup.local_source_deleted job_id=%s path=%s", job_id, source_path)
+            logger.info(
+                "cleanup.local_source_deleted job_id=%s path=%s", job_id, source_path
+            )
         except OSError:
             logger.warning(
                 "cleanup.local_source_delete_failed job_id=%s path=%s",
@@ -543,7 +439,9 @@ def _finalize_local_source_video(
 
     if not cleanup_after_upload and source_upload_verified:
         cleanup.mark_job_for_source_retention(str(TEMP_MEDIA_DIR), job_id)
-        logger.info("cleanup.local_source_retained job_id=%s path=%s", job_id, source_path)
+        logger.info(
+            "cleanup.local_source_retained job_id=%s path=%s", job_id, source_path
+        )
         return
 
     logger.info(
@@ -568,13 +466,19 @@ def process_video(
         source_key = media_store.upload_source_video(
             job_id=job_id,
             file_path=video_path,
-            content_type=_resolve_video_content_type(upload_content_type, source_extension),
+            content_type=_resolve_video_content_type(
+                upload_content_type, source_extension
+            ),
             source_extension=source_extension,
         )
         source_upload_verified = media_store.verify_object(source_key)
         if not source_upload_verified:
-            logger.error("upload.verify.source_failed job_id=%s key=%s", job_id, source_key)
-            raise MediaStoreError(f"Source upload verification failed for key '{source_key}'")
+            logger.error(
+                "upload.verify.source_failed job_id=%s key=%s", job_id, source_key
+            )
+            raise MediaStoreError(
+                f"Source upload verification failed for key '{source_key}'"
+            )
 
         jobs.set_job_stage(job_id, "cv_processing")
         models = ModelLoader.get()
@@ -584,7 +488,9 @@ def process_video(
             jobs.fail_job(job_id, "No scenes or frames extracted")
             return
 
-        scene.save_original_frames(frames, job_id, str(TEMP_MEDIA_DIR), media_store=media_store)
+        scene.save_original_frames(
+            frames, job_id, str(TEMP_MEDIA_DIR), media_store=media_store
+        )
 
         frame_results = []
         face_tracker = analysis.FaceIdentityTracker()
@@ -603,9 +509,11 @@ def process_video(
 
         video_face_identities: dict[str, Any] | None = None
         video_person_tracks: dict[str, Any] | None = None
-        video_object_tracks: dict[str, Any] | None = analysis.run_object_tracking_summary(
-            frame_results=frame_results,
-            job_id=job_id,
+        video_object_tracks: dict[str, Any] | None = (
+            analysis.run_object_tracking_summary(
+                frame_results=frame_results,
+                job_id=job_id,
+            )
         )
         if bool(getattr(SETTINGS, "enable_face_identity_pipeline", False)):
             tracking_frames = scene.extract_tracking_frames(
@@ -635,7 +543,6 @@ def process_video(
                 {
                     "job_id": job_id,
                     "frames": frame_results,
-                    **_default_scene_outputs(),
                     "corpus": None,
                     "video_face_identities": video_face_identities,
                     "video_person_tracks": video_person_tracks,
@@ -676,19 +583,6 @@ def process_video(
             )
             return
 
-        # Keep LLM involvement constrained to scene understanding between CV and corpus stages.
-        scene_outputs: dict[str, Any] = _default_scene_outputs()
-        if SETTINGS.enable_scene_understanding_pipeline:
-            scene_outputs = _normalize_scene_outputs(
-                video_understanding.run_scene_understanding_pipeline(
-                    job_id=job_id,
-                    scenes=scenes,
-                    frame_results=frame_results,
-                    settings=SETTINGS,
-                    media_store=media_store,
-                )
-            )
-
         corpus_output: dict[str, Any] | None = None
         if SETTINGS.enable_corpus_pipeline:
             jobs.set_job_stage(job_id, "corpus_processing")
@@ -696,7 +590,6 @@ def process_video(
                 job_id=job_id,
                 scenes=scenes,
                 frame_results=frame_results,
-                scene_outputs=scene_outputs,
                 settings=SETTINGS,
                 media_store=media_store,
             )
@@ -704,7 +597,6 @@ def process_video(
         payload = {
             "job_id": job_id,
             "frames": frame_results,
-            **scene_outputs,
             "corpus": corpus_output,
             "video_face_identities": video_face_identities,
             "video_person_tracks": video_person_tracks,
@@ -777,7 +669,10 @@ async def analyze_video(
                 if size > MAX_UPLOAD_BYTES:
                     local_source_path.unlink(missing_ok=True)
                     shutil.rmtree(TEMP_MEDIA_DIR / job_id, ignore_errors=True)
-                    raise HTTPException(413, f"File exceeds {MAX_UPLOAD_BYTES // (1024*1024)} MB limit")
+                    raise HTTPException(
+                        413,
+                        f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+                    )
                 f.write(chunk)
     except HTTPException:
         raise

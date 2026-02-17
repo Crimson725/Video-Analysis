@@ -68,7 +68,11 @@ class TestNeo4jUpsertScene:
             t1=5.0,
             selected_frame_ids=[0, 3, 5],
             frame_timestamps={0: 0.0, 3: 1.5, 5: 2.5},
-            frame_uids={0: "test_vid_001:0:0", 3: "test_vid_001:0:3", 5: "test_vid_001:0:5"},
+            frame_uids={
+                0: "test_vid_001:0:0",
+                3: "test_vid_001:0:3",
+                5: "test_vid_001:0:5",
+            },
             entities=[
                 {
                     "entity_uid": "test_vid_001:person_7",
@@ -101,7 +105,11 @@ class TestNeo4jUpsertScene:
                     "event_id": "ev_001",
                     "event_type": "handoff_object",
                     "participants": [
-                        {"entity_uid": "test_vid_001:person_7", "entity_id": "person_7", "role": "giver"},
+                        {
+                            "entity_uid": "test_vid_001:person_7",
+                            "entity_id": "person_7",
+                            "role": "giver",
+                        },
                     ],
                     "time_span_s": [1.8, 2.2],
                     "summary": "Object handoff",
@@ -167,8 +175,20 @@ class TestNeo4jUpsertScene:
             frame_timestamps={0: 0.0},
             frame_uids={0: "test_vid_rel:0:0"},
             entities=[
-                {"entity_uid": "test_vid_rel:p_a", "entity_local_id": "p_a", "type": "Person", "attributes": {}, "confidence": 0.9},
-                {"entity_uid": "test_vid_rel:p_b", "entity_local_id": "p_b", "type": "Person", "attributes": {}, "confidence": 0.8},
+                {
+                    "entity_uid": "test_vid_rel:p_a",
+                    "entity_local_id": "p_a",
+                    "type": "Person",
+                    "attributes": {},
+                    "confidence": 0.9,
+                },
+                {
+                    "entity_uid": "test_vid_rel:p_b",
+                    "entity_local_id": "p_b",
+                    "type": "Person",
+                    "attributes": {},
+                    "confidence": 0.8,
+                },
             ],
             relations=[
                 {
@@ -206,7 +226,13 @@ class TestNeo4jUpsertScene:
             frame_timestamps={0: 0.0},
             frame_uids={0: "test_vid_metrics:0:0"},
             entities=[
-                {"entity_uid": "test_vid_metrics:p_met", "entity_local_id": "p_met", "type": "Person", "attributes": {}, "confidence": 0.9},
+                {
+                    "entity_uid": "test_vid_metrics:p_met",
+                    "entity_local_id": "p_met",
+                    "type": "Person",
+                    "attributes": {},
+                    "confidence": 0.9,
+                },
             ],
             relations=[],
             events=[],
@@ -242,7 +268,13 @@ class TestMultiJobIsolation:
             job_id="test_job_A",
             frame_uids={0: "test_job_A:0:0"},
             entities=[
-                {"entity_uid": "test_job_A:person_1", "entity_local_id": "person_1", "type": "Person", "attributes": {}, "confidence": 0.9},
+                {
+                    "entity_uid": "test_job_A:person_1",
+                    "entity_local_id": "person_1",
+                    "type": "Person",
+                    "attributes": {},
+                    "confidence": 0.9,
+                },
             ],
             **base_params,
         )
@@ -255,7 +287,13 @@ class TestMultiJobIsolation:
             job_id="test_job_B",
             frame_uids={0: "test_job_B:0:0"},
             entities=[
-                {"entity_uid": "test_job_B:person_1", "entity_local_id": "person_1", "type": "Person", "attributes": {}, "confidence": 0.9},
+                {
+                    "entity_uid": "test_job_B:person_1",
+                    "entity_local_id": "person_1",
+                    "type": "Person",
+                    "attributes": {},
+                    "confidence": 0.9,
+                },
             ],
             **base_params,
         )
@@ -301,8 +339,20 @@ class TestIdempotency:
             frame_timestamps={0: 0.0, 1: 1.0},
             frame_uids={0: "test_idem_job:0:0", 1: "test_idem_job:0:1"},
             entities=[
-                {"entity_uid": "test_idem_job:p1", "entity_local_id": "p1", "type": "Person", "attributes": {}, "confidence": 0.9},
-                {"entity_uid": "test_idem_job:obj1", "entity_local_id": "obj1", "type": "Object", "attributes": {"label": "phone"}, "confidence": 0.8},
+                {
+                    "entity_uid": "test_idem_job:p1",
+                    "entity_local_id": "p1",
+                    "type": "Person",
+                    "attributes": {},
+                    "confidence": 0.9,
+                },
+                {
+                    "entity_uid": "test_idem_job:obj1",
+                    "entity_local_id": "obj1",
+                    "type": "Object",
+                    "attributes": {"label": "phone"},
+                    "confidence": 0.8,
+                },
             ],
             relations=[],
             events=[

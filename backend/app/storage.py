@@ -87,7 +87,9 @@ class MediaStore(Protocol):
     ) -> str:
         """Upload a source video and return the stored object key."""
 
-    def upload_frame_image(self, job_id: str, frame_kind: FrameKind, frame_id: int, image_bytes: bytes) -> str:
+    def upload_frame_image(
+        self, job_id: str, frame_kind: FrameKind, frame_id: int, image_bytes: bytes
+    ) -> str:
         """Upload a generated frame artifact and return the stored object key."""
 
     def upload_analysis_artifact(
@@ -159,14 +161,18 @@ def build_frame_key(job_id: str, frame_kind: FrameKind, frame_id: int) -> str:
     return f"jobs/{job_id}/frames/{_FRAME_PREFIX[frame_kind]}/frame_{frame_id}.jpg"
 
 
-def build_analysis_key(job_id: str, artifact_kind: AnalysisArtifactKind, frame_id: int) -> str:
+def build_analysis_key(
+    job_id: str, artifact_kind: AnalysisArtifactKind, frame_id: int
+) -> str:
     """Build deterministic key for an analysis artifact object."""
     artifact_dir = _ANALYSIS_PREFIX[artifact_kind]
     artifact_ext = _ANALYSIS_EXTENSION[artifact_kind]
     return f"jobs/{job_id}/analysis/{artifact_dir}/frame_{frame_id}.{artifact_ext}"
 
 
-def build_scene_key(job_id: str, artifact_kind: SceneArtifactKind, scene_id: int) -> str:
+def build_scene_key(
+    job_id: str, artifact_kind: SceneArtifactKind, scene_id: int
+) -> str:
     """Build deterministic key for a scene-level artifact object."""
     artifact_dir = _SCENE_PREFIX[artifact_kind]
     artifact_ext = _SCENE_EXTENSION[artifact_kind]
@@ -179,7 +185,9 @@ def build_summary_key(job_id: str, artifact_kind: SummaryArtifactKind) -> str:
     return f"jobs/{job_id}/summary/{artifact_kind}.{artifact_ext}"
 
 
-def build_corpus_key(job_id: str, artifact_kind: CorpusArtifactKind, filename: str = "bundle.json") -> str:
+def build_corpus_key(
+    job_id: str, artifact_kind: CorpusArtifactKind, filename: str = "bundle.json"
+) -> str:
     """Build deterministic key for a corpus artifact object."""
     safe_filename = filename.strip().replace("/", "_") or "bundle.json"
     return f"jobs/{job_id}/corpus/{_CORPUS_PREFIX[artifact_kind]}/{safe_filename}"
@@ -248,7 +256,9 @@ class R2MediaStore:
         self._upload_file(file_path, object_key, content_type or "video/mp4")
         return object_key
 
-    def upload_frame_image(self, job_id: str, frame_kind: FrameKind, frame_id: int, image_bytes: bytes) -> str:
+    def upload_frame_image(
+        self, job_id: str, frame_kind: FrameKind, frame_id: int, image_bytes: bytes
+    ) -> str:
         object_key = build_frame_key(job_id, frame_kind, frame_id)
         self._put_object(object_key, image_bytes, "image/jpeg")
         return object_key
@@ -328,7 +338,9 @@ class R2MediaStore:
                 ExpiresIn=ttl,
             )
         except Exception as exc:  # pragma: no cover - depends on external SDK
-            raise MediaStoreError(f"Failed to generate signed URL for '{object_key}'") from exc
+            raise MediaStoreError(
+                f"Failed to generate signed URL for '{object_key}'"
+            ) from exc
 
     def _upload_file(self, file_path: str, object_key: str, content_type: str) -> None:
         try:
@@ -339,7 +351,9 @@ class R2MediaStore:
                 ExtraArgs={"ContentType": content_type},
             )
         except Exception as exc:  # pragma: no cover - depends on external SDK
-            raise MediaStoreError(f"Failed to upload file '{file_path}' to '{object_key}'") from exc
+            raise MediaStoreError(
+                f"Failed to upload file '{file_path}' to '{object_key}'"
+            ) from exc
 
     def _put_object(self, object_key: str, body: bytes, content_type: str) -> None:
         try:

@@ -46,7 +46,9 @@ DEFAULT_ALLOWED_PREDICATES: list[str] = [
 class LLMPacketConstraints(BaseModel):
     """Constraints block included in the LLM scene packet."""
 
-    allowed_predicates: list[str] = Field(default_factory=lambda: list(DEFAULT_ALLOWED_PREDICATES))
+    allowed_predicates: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_ALLOWED_PREDICATES)
+    )
     evidence_required: bool = True
     do_not_invent_coordinates: bool = True
     do_not_override_cv_ids: bool = True

@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 DEFAULT_FACE_IDENTITY_MODEL_ID = "edgeface_s_gamma_05"
-DEFAULT_PGVECTOR_DSN = "postgresql://video_analysis:video_analysis@127.0.0.1:5433/video_analysis"
+DEFAULT_PGVECTOR_DSN = (
+    "postgresql://video_analysis:video_analysis@127.0.0.1:5433/video_analysis"
+)
 _FACE_IDENTITY_MODEL_ID_ALIASES = {
     # Legacy alias kept for backward compatibility with prior rollout docs/config.
     "edgeface-arcface-torch": DEFAULT_FACE_IDENTITY_MODEL_ID,
@@ -148,7 +150,9 @@ def _storage_settings(default_temp: Path) -> dict[str, Any]:
         "r2_secret_access_key": _read_str("R2_SECRET_ACCESS_KEY"),
         "r2_url_ttl_seconds": _read_int("R2_URL_TTL_SECONDS", default=3600, minimum=1),
         "r2_retention_days": _read_int("R2_RETENTION_DAYS", default=7, minimum=1),
-        "r2_abort_multipart_days": _read_int("R2_ABORT_MULTIPART_DAYS", default=1, minimum=1),
+        "r2_abort_multipart_days": _read_int(
+            "R2_ABORT_MULTIPART_DAYS", default=1, minimum=1
+        ),
         "temp_media_dir": _read_str("TEMP_MEDIA_DIR", str(default_temp)),
         "cleanup_local_video_after_upload_default": _read_bool(
             "CLEANUP_LOCAL_VIDEO_AFTER_UPLOAD_DEFAULT",
@@ -159,17 +163,15 @@ def _storage_settings(default_temp: Path) -> dict[str, Any]:
 
 def _scene_understanding_settings() -> dict[str, Any]:
     return {
-        "enable_scene_understanding_pipeline": _read_bool(
-            "ENABLE_SCENE_UNDERSTANDING_PIPELINE",
-            default=True,
-        ),
         "scene_ai_execution_mode": _read_choice(
             "SCENE_AI_EXECUTION_MODE",
             default="in_process",
             allowed={"in_process", "queue"},
         ),
         "scene_ai_queue_dsn": _read_scene_ai_queue_dsn(),
-        "scene_ai_max_attempts": _read_int("SCENE_AI_MAX_ATTEMPTS", default=3, minimum=1),
+        "scene_ai_max_attempts": _read_int(
+            "SCENE_AI_MAX_ATTEMPTS", default=3, minimum=1
+        ),
         "scene_ai_retry_backoff_seconds": _read_int(
             "SCENE_AI_RETRY_BACKOFF_SECONDS",
             default=5,
@@ -200,33 +202,27 @@ def _scene_understanding_settings() -> dict[str, Any]:
             default=2,
             minimum=1,
         ),
-        "scene_ai_prompt_version": _read_nonempty_str("SCENE_AI_PROMPT_VERSION", "v1"),
-        "scene_ai_runtime_version": _read_nonempty_str("SCENE_AI_RUNTIME_VERSION", "v1"),
         "google_api_key": _read_str("GOOGLE_API_KEY"),
         "scene_model_id": _read_str("SCENE_MODEL_ID", "gemini-3-flash-preview"),
-        "synopsis_model_id": _read_str("SYNOPSIS_MODEL_ID", "gemini-3-flash-preview"),
-        "scene_llm_retry_count": _read_int("SCENE_LLM_RETRY_COUNT", default=2, minimum=0),
-        "scene_packet_max_entities": _read_int("SCENE_PACKET_MAX_ENTITIES", default=8, minimum=1),
-        "scene_packet_max_events": _read_int("SCENE_PACKET_MAX_EVENTS", default=8, minimum=1),
-        "scene_packet_max_keyframes": _read_int("SCENE_PACKET_MAX_KEYFRAMES", default=3, minimum=1),
-        "scene_packet_disambiguation_label_threshold": _read_int(
-            "SCENE_PACKET_DISAMBIGUATION_LABEL_THRESHOLD",
-            default=4,
-            minimum=1,
-        ),
         "langsmith_tracing_enabled": _read_bool("LANGSMITH_TRACING", default=False),
         "langsmith_project": _read_str("LANGSMITH_PROJECT"),
         # KG pipeline settings
         "kg_pipeline_enabled": _read_bool("KG_PIPELINE_ENABLED", default=False),
         "kg_max_keyframes": _read_int("KG_MAX_KEYFRAMES", default=12, minimum=1),
-        "kg_motion_threshold": _read_float("KG_MOTION_THRESHOLD", default=80.0, minimum=0.0),
+        "kg_motion_threshold": _read_float(
+            "KG_MOTION_THRESHOLD", default=80.0, minimum=0.0
+        ),
         "kg_interaction_distance_threshold": _read_float(
             "KG_INTERACTION_DISTANCE_THRESHOLD",
             default=150.0,
             minimum=0.0,
         ),
-        "kg_near_threshold": _read_float("KG_NEAR_THRESHOLD", default=150.0, minimum=0.0),
-        "kg_max_repair_retries": _read_int("KG_MAX_REPAIR_RETRIES", default=1, minimum=0),
+        "kg_near_threshold": _read_float(
+            "KG_NEAR_THRESHOLD", default=150.0, minimum=0.0
+        ),
+        "kg_max_repair_retries": _read_int(
+            "KG_MAX_REPAIR_RETRIES", default=1, minimum=0
+        ),
         "kg_allowed_predicates": _read_str("KG_ALLOWED_PREDICATES", ""),
     }
 
@@ -263,7 +259,9 @@ def _face_identity_settings(
             default="cpu",
             allowed={"auto", "cuda", "mps", "cpu"},
         ),
-        "face_identity_sample_fps": _read_int("FACE_IDENTITY_SAMPLE_FPS", default=4, minimum=1),
+        "face_identity_sample_fps": _read_int(
+            "FACE_IDENTITY_SAMPLE_FPS", default=4, minimum=1
+        ),
         "face_identity_max_samples_per_scene": _read_int(
             "FACE_IDENTITY_MAX_SAMPLES_PER_SCENE",
             default=120,
@@ -307,7 +305,6 @@ class Settings:
     r2_abort_multipart_days: int
     temp_media_dir: str
     cleanup_local_video_after_upload_default: bool
-    enable_scene_understanding_pipeline: bool
     scene_ai_execution_mode: str
     scene_ai_queue_dsn: str
     scene_ai_max_attempts: int
@@ -317,16 +314,8 @@ class Settings:
     scene_ai_lease_timeout_seconds: int
     scene_ai_failure_policy: str
     scene_ai_worker_poll_interval_seconds: int
-    scene_ai_prompt_version: str
-    scene_ai_runtime_version: str
     google_api_key: str
     scene_model_id: str
-    synopsis_model_id: str
-    scene_llm_retry_count: int
-    scene_packet_max_entities: int
-    scene_packet_max_events: int
-    scene_packet_max_keyframes: int
-    scene_packet_disambiguation_label_threshold: int
     langsmith_tracing_enabled: bool
     langsmith_project: str
     kg_pipeline_enabled: bool
@@ -372,8 +361,12 @@ class Settings:
             default_dotenvs = (backend_root / ".env", backend_root / ".env.local")
             _load_dotenv_files(dotenv_files or default_dotenvs)
 
-        enable_face_identity_pipeline = _read_bool("ENABLE_FACE_IDENTITY_PIPELINE", default=True)
-        face_identity_model_id = _resolve_face_identity_model_id(enable_face_identity_pipeline)
+        enable_face_identity_pipeline = _read_bool(
+            "ENABLE_FACE_IDENTITY_PIPELINE", default=True
+        )
+        face_identity_model_id = _resolve_face_identity_model_id(
+            enable_face_identity_pipeline
+        )
 
         return cls(
             **_storage_settings(default_temp),
@@ -398,9 +391,9 @@ class Settings:
         return missing
 
     def missing_llm_fields(self) -> list[str]:
-        """Return missing required LLM settings for enabled scene understanding."""
+        """Return missing required LLM settings for enabled KG pipeline."""
         missing: list[str] = []
-        if self.enable_scene_understanding_pipeline and not self.google_api_key:
+        if self.kg_pipeline_enabled and not self.google_api_key:
             missing.append("GOOGLE_API_KEY")
         return missing
 

@@ -85,12 +85,12 @@ def test_process_video_runs_face_identity_pipeline_when_enabled():
                 }
             ],
         ) as mock_extract_tracking_frames,
-        patch("app.main.analysis.run_face_identity_pipeline", return_value=summary) as mock_identity,
+        patch(
+            "app.main.analysis.run_face_identity_pipeline", return_value=summary
+        ) as mock_identity,
         patch(
             "app.main.SETTINGS",
             SimpleNamespace(
-                enable_scene_understanding_pipeline=False,
-                scene_ai_execution_mode="in_process",
                 enable_corpus_pipeline=False,
                 enable_corpus_ingest=False,
                 cleanup_local_video_after_upload_default=True,
@@ -133,7 +133,9 @@ def test_process_video_skips_face_identity_pipeline_when_disabled():
         patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)]),
         patch(
             "app.main.scene.extract_keyframes",
-            return_value=[{"frame_id": 0, "timestamp": "00:00:00.500", "image": object()}],
+            return_value=[
+                {"frame_id": 0, "timestamp": "00:00:00.500", "image": object()}
+            ],
         ),
         patch("app.main.scene.save_original_frames"),
         patch("app.main.analysis.analyze_frame", return_value=_frame_payload(job_id)),
@@ -142,8 +144,6 @@ def test_process_video_skips_face_identity_pipeline_when_disabled():
         patch(
             "app.main.SETTINGS",
             SimpleNamespace(
-                enable_scene_understanding_pipeline=False,
-                scene_ai_execution_mode="in_process",
                 enable_corpus_pipeline=False,
                 enable_corpus_ingest=False,
                 cleanup_local_video_after_upload_default=True,
@@ -176,7 +176,6 @@ def test_startup_validation_logs_face_identity_runtime_when_enabled(caplog):
             "app.main.SETTINGS",
             SimpleNamespace(
                 missing_r2_fields=lambda: [],
-                enable_scene_understanding_pipeline=False,
                 enable_corpus_pipeline=False,
                 enable_corpus_ingest=False,
                 enable_face_identity_pipeline=True,
@@ -193,5 +192,8 @@ def test_startup_validation_logs_face_identity_runtime_when_enabled(caplog):
         with caplog.at_level(logging.INFO):
             _startup_validate_settings()
 
-    assert "Face identity runtime configured model_profile=edgeface_s_gamma_05 backend_preference=auto" in caplog.text
+    assert (
+        "Face identity runtime configured model_profile=edgeface_s_gamma_05 backend_preference=auto"
+        in caplog.text
+    )
     assert "edgeface-runtime-note" in caplog.text

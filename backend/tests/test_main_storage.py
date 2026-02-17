@@ -12,7 +12,10 @@ from app.storage import MediaStoreConfigError, MediaStoreError
 
 
 class TestProcessVideoStorageFailures:
-    @patch("app.main.get_media_store", side_effect=MediaStoreConfigError("Missing R2_ACCOUNT_ID"))
+    @patch(
+        "app.main.get_media_store",
+        side_effect=MediaStoreConfigError("Missing R2_ACCOUNT_ID"),
+    )
     def test_missing_storage_config_marks_job_failed(self, _mock_store):
         job_id = jobs.create_job()
 
@@ -40,10 +43,16 @@ class TestProcessVideoStorageFailures:
         assert job["status"] == "failed"
         assert "upload failed" in job["error"]
 
-    @patch("app.main.scene.extract_keyframes", return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}])
+    @patch(
+        "app.main.scene.extract_keyframes",
+        return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}],
+    )
     @patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)])
     @patch("app.main.scene.save_original_frames")
-    @patch("app.main.analysis.analyze_frame", side_effect=RuntimeError("analysis artifact persistence failed"))
+    @patch(
+        "app.main.analysis.analyze_frame",
+        side_effect=RuntimeError("analysis artifact persistence failed"),
+    )
     @patch("app.main.ModelLoader")
     @patch("app.main.get_media_store")
     def test_analysis_artifact_failure_marks_job_failed(
@@ -69,7 +78,10 @@ class TestProcessVideoStorageFailures:
         assert job["status"] == "failed"
         assert "analysis artifact persistence failed" in job["error"]
 
-    @patch("app.main.scene.extract_keyframes", return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}])
+    @patch(
+        "app.main.scene.extract_keyframes",
+        return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}],
+    )
     @patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)])
     @patch("app.main.scene.save_original_frames")
     @patch(
@@ -117,8 +129,8 @@ class TestProcessVideoStorageFailures:
     ):
         mock_store = MagicMock()
         mock_store.upload_source_video.return_value = "jobs/job-x/input/source.mp4"
-        mock_store.verify_object.side_effect = (
-            lambda key: key != "jobs/job-x/frames/det/frame_0.jpg"
+        mock_store.verify_object.side_effect = lambda key: (
+            key != "jobs/job-x/frames/det/frame_0.jpg"
         )
         mock_store_factory.return_value = mock_store
         mock_model_loader.get.return_value = MagicMock()
@@ -150,7 +162,9 @@ class TestProcessVideoStorageFailures:
             video_path.write_bytes(b"video")
 
             mock_store = MagicMock()
-            mock_store.upload_source_video.return_value = "jobs/job-keep/input/source.mp4"
+            mock_store.upload_source_video.return_value = (
+                "jobs/job-keep/input/source.mp4"
+            )
             mock_store.verify_object.return_value = True
             mock_store_factory.return_value = mock_store
 

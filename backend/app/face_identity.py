@@ -68,7 +68,9 @@ class SceneCluster:
 
     def update(self, embedding: np.ndarray, frame_id: int, face_id: int) -> None:
         total = self.count + 1
-        self.centroid = _normalized_vector((self.centroid * self.count + embedding) / total)
+        self.centroid = _normalized_vector(
+            (self.centroid * self.count + embedding) / total
+        )
         self.count = total
         self.observations.append((frame_id, face_id))
 
@@ -84,7 +86,9 @@ class VideoCluster:
 
     def update(self, embedding: np.ndarray, scene_person_id: str) -> None:
         total = self.count + 1
-        self.centroid = _normalized_vector((self.centroid * self.count + embedding) / total)
+        self.centroid = _normalized_vector(
+            (self.centroid * self.count + embedding) / total
+        )
         self.count = total
         if scene_person_id not in self.scene_person_ids:
             self.scene_person_ids.append(scene_person_id)
@@ -123,13 +127,19 @@ class EdgeFaceTorchEmbedder:
         return None
 
     def _load_model(self, weights_path: str) -> None:
-        model = InceptionResnetV1(classify=False, pretrained=None).to(self.device).eval()
+        model = (
+            InceptionResnetV1(classify=False, pretrained=None).to(self.device).eval()
+        )
         candidate = self._resolve_weights_candidate(weights_path)
         loaded = False
         if candidate and candidate.is_file():
             try:
                 state = torch.load(candidate, map_location=self.device)
-                if isinstance(state, dict) and "state_dict" in state and isinstance(state["state_dict"], dict):
+                if (
+                    isinstance(state, dict)
+                    and "state_dict" in state
+                    and isinstance(state["state_dict"], dict)
+                ):
                     state = state["state_dict"]
                 if isinstance(state, dict):
                     filtered_state = {
@@ -146,7 +156,9 @@ class EdgeFaceTorchEmbedder:
                             candidate,
                         )
                     else:
-                        load_result = model.load_state_dict(filtered_state, strict=False)
+                        load_result = model.load_state_dict(
+                            filtered_state, strict=False
+                        )
                         loaded = True
                         logger.info(
                             "Loaded face identity weights from %s using model_id=%s",
@@ -167,7 +179,9 @@ class EdgeFaceTorchEmbedder:
                         candidate,
                     )
             except Exception as exc:  # pragma: no cover - depends on runtime weights
-                logger.warning("Failed loading face identity weights from %s: %s", candidate, exc)
+                logger.warning(
+                    "Failed loading face identity weights from %s: %s", candidate, exc
+                )
         elif candidate:
             logger.warning(
                 "Configured face identity weights path does not exist for model_id=%s path=%s",
@@ -208,14 +222,29 @@ class EdgeFaceTorchEmbedder:
 
         try:
             resized = cv2.resize(crop_rgb, (160, 160), interpolation=cv2.INTER_LINEAR)
-            tensor = torch.from_numpy(resized).float().permute(2, 0, 1).unsqueeze(0).to(self.device)
+            tensor = (
+                torch.from_numpy(resized)
+                .float()
+                .permute(2, 0, 1)
+                .unsqueeze(0)
+                .to(self.device)
+            )
             # Facenet-style normalization.
             tensor = (tensor / 255.0 - 0.5) / 0.5
             with torch.no_grad():
-                embedding = self._model(tensor).squeeze(0).detach().cpu().numpy().astype(np.float32)
+                embedding = (
+                    self._model(tensor)
+                    .squeeze(0)
+                    .detach()
+                    .cpu()
+                    .numpy()
+                    .astype(np.float32)
+                )
             return _normalized_vector(embedding)
         except Exception as exc:
-            logger.warning("Face embedding inference failed; using deterministic fallback: %s", exc)
+            logger.warning(
+                "Face embedding inference failed; using deterministic fallback: %s", exc
+            )
             return self._fallback_embedding(crop_rgb)
 
 
@@ -246,7 +275,9 @@ def aggregate_scene_identities(
     assignments: dict[tuple[int, int, int], dict[str, Any]] = {}
     clusters_by_scene: dict[int, list[SceneCluster]] = {}
 
-    ordered = sorted(observations, key=lambda item: (item.scene_id, item.frame_id, item.face_id))
+    ordered = sorted(
+        observations, key=lambda item: (item.scene_id, item.frame_id, item.face_id)
+    )
     for obs in ordered:
         clusters = clusters_by_scene.setdefault(obs.scene_id, [])
         best_idx, best_sim, second_best = _best_similarity(obs.embedding, clusters)
@@ -298,14 +329,20 @@ def stitch_video_identities(
             clusters_by_scene[scene_id],
             key=lambda item: item.scene_person_id,
         ):
-            best_idx, best_sim, second_best = _best_similarity(cluster.centroid, video_clusters)
+            best_idx, best_sim, second_best = _best_similarity(
+                cluster.centroid, video_clusters
+            )
             ambiguous = (
                 best_idx is not None
                 and best_sim >= similarity_threshold
                 and (best_sim - second_best) <= ambiguity_margin
             )
 
-            if best_idx is not None and best_sim >= similarity_threshold and not ambiguous:
+            if (
+                best_idx is not None
+                and best_sim >= similarity_threshold
+                and not ambiguous
+            ):
                 video_cluster = video_clusters[best_idx]
                 video_cluster.update(cluster.centroid, cluster.scene_person_id)
                 video_person_id = video_cluster.video_person_id

@@ -52,17 +52,18 @@ def test_process_video_enqueues_scene_task_in_queue_mode():
         patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)]),
         patch(
             "app.main.scene.extract_keyframes",
-            return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}],
+            return_value=[
+                {"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}
+            ],
         ),
         patch("app.main.scene.save_original_frames"),
         patch("app.main.analysis.analyze_frame") as mock_analyze_frame,
         patch("app.main.analysis.run_object_tracking_summary") as mock_object_summary,
-        patch("app.main.video_understanding.run_scene_understanding_pipeline") as mock_scene_pipeline,
         patch("app.main.corpus.build") as mock_corpus_build,
         patch(
             "app.main.SETTINGS",
             SimpleNamespace(
-                enable_scene_understanding_pipeline=True,
+                kg_pipeline_enabled=True,
                 scene_ai_execution_mode="queue",
                 scene_ai_max_attempts=3,
                 enable_corpus_pipeline=True,
@@ -106,7 +107,6 @@ def test_process_video_enqueues_scene_task_in_queue_mode():
         "tracks": [],
     }
     assert call_order == ["cv"]
-    mock_scene_pipeline.assert_not_called()
     mock_corpus_build.assert_not_called()
 
 
@@ -121,7 +121,9 @@ def test_process_video_disabled_scene_pipeline_keeps_stable_empty_outputs():
         patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)]),
         patch(
             "app.main.scene.extract_keyframes",
-            return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}],
+            return_value=[
+                {"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}
+            ],
         ),
         patch("app.main.scene.save_original_frames"),
         patch("app.main.analysis.analyze_frame", return_value=_frame_payload(job_id)),
@@ -129,7 +131,7 @@ def test_process_video_disabled_scene_pipeline_keeps_stable_empty_outputs():
         patch(
             "app.main.SETTINGS",
             SimpleNamespace(
-                enable_scene_understanding_pipeline=False,
+                kg_pipeline_enabled=False,
                 scene_ai_execution_mode="queue",
                 scene_ai_max_attempts=3,
                 enable_corpus_pipeline=False,
@@ -152,7 +154,5 @@ def test_process_video_disabled_scene_pipeline_keeps_stable_empty_outputs():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert job["result"]["scene_narratives"] == []
-    assert job["result"]["video_synopsis"] is None
     assert "scene_task_id" not in job
     mock_corpus_build.assert_not_called()

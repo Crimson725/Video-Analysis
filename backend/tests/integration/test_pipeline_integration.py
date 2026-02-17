@@ -16,9 +16,7 @@ from app.storage import (
     build_analysis_key,
     build_corpus_key,
     build_frame_key,
-    build_scene_key,
     build_source_video_key,
-    build_summary_key,
 )
 
 
@@ -43,23 +41,17 @@ class InMemoryMediaStore:
         self.objects[object_key] = Path(file_path).read_bytes()
         return object_key
 
-    def upload_frame_image(self, job_id: str, frame_kind: str, frame_id: int, image_bytes: bytes) -> str:
+    def upload_frame_image(
+        self, job_id: str, frame_kind: str, frame_id: int, image_bytes: bytes
+    ) -> str:
         object_key = build_frame_key(job_id, frame_kind, frame_id)
         self.objects[object_key] = image_bytes
         return object_key
 
-    def upload_analysis_artifact(self, job_id: str, artifact_kind: str, frame_id: int, payload: bytes) -> str:
+    def upload_analysis_artifact(
+        self, job_id: str, artifact_kind: str, frame_id: int, payload: bytes
+    ) -> str:
         object_key = build_analysis_key(job_id, artifact_kind, frame_id)
-        self.objects[object_key] = payload
-        return object_key
-
-    def upload_scene_artifact(self, job_id: str, artifact_kind: str, scene_id: int, payload: bytes) -> str:
-        object_key = build_scene_key(job_id, artifact_kind, scene_id)
-        self.objects[object_key] = payload
-        return object_key
-
-    def upload_summary_artifact(self, job_id: str, artifact_kind: str, payload: bytes) -> str:
-        object_key = build_summary_key(job_id, artifact_kind)
         self.objects[object_key] = payload
         return object_key
 
@@ -85,6 +77,7 @@ class InMemoryMediaStore:
 # ---------------------------------------------------------------------------
 # Fixture: copy test video to a temp file (process_video deletes the original)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def video_copy(test_video_path):
@@ -112,7 +105,6 @@ def _configure_process_video_for_local_integration(monkeypatch, tmp_path):
     base_settings = Settings.from_env()
     test_settings = replace(
         base_settings,
-        enable_scene_understanding_pipeline=False,
         enable_corpus_pipeline=False,
         enable_corpus_ingest=False,
         cleanup_local_video_after_upload_default=True,
@@ -129,6 +121,7 @@ def _configure_process_video_for_local_integration(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 # 8.2 — process_video completes successfully
 # ---------------------------------------------------------------------------
+
 
 class TestProcessVideoIntegration:
     def test_completes_with_status_completed(self, video_copy):
@@ -147,6 +140,7 @@ class TestProcessVideoIntegration:
 # ---------------------------------------------------------------------------
 # 8.3 — Result conforms to JobResult Pydantic model
 # ---------------------------------------------------------------------------
+
 
 class TestProcessVideoResultSchema:
     def test_result_parseable_by_job_result_model(self, video_copy):
@@ -167,6 +161,7 @@ class TestProcessVideoResultSchema:
 # 8.4 — Each frame has all analysis types and file paths
 # ---------------------------------------------------------------------------
 
+
 class TestProcessVideoFrameContent:
     def test_each_frame_has_files_and_analysis(self, video_copy):
         job_id = jobs.create_job()
@@ -182,7 +177,9 @@ class TestProcessVideoFrameContent:
             assert frame.files.segmentation, "segmentation file path is empty"
             assert frame.files.detection, "detection file path is empty"
             assert frame.files.face, "face file path is empty"
-            assert frame.analysis_artifacts.json_artifact, "json analysis artifact path is empty"
+            assert frame.analysis_artifacts.json_artifact, (
+                "json analysis artifact path is empty"
+            )
 
             # analysis: all three lists present (may be empty for some frames)
             assert isinstance(frame.analysis.semantic_segmentation, list)

@@ -1,4 +1,5 @@
 """Shared fixtures for integration tests using real models and real video."""
+
 import os
 from pathlib import Path
 import shutil
@@ -11,7 +12,6 @@ import pytest
 
 from app.config import Settings
 from app.models import ModelLoader
-from app.schemas import JobResult
 from app.scene import detect_scenes, extract_keyframes
 from app.storage import MediaStoreError, R2MediaStore
 
@@ -28,6 +28,8 @@ _CORPUS_COMPOSE_FILE = _REPO_ROOT / "backend" / "docker-compose.corpus.yml"
 _CORPUS_COMPOSE_PROJECT = "video-analysis-corpus-itest"
 _DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT = 47687
 _DEFAULT_CORPUS_TEST_PGVECTOR_PORT = 45433
+
+
 def _load_env_file(path: Path) -> None:
     """Load KEY=VALUE env vars from a dotenv-style file."""
     if not path.is_file():
@@ -51,22 +53,10 @@ def _read_env(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
-def _skip_with_command(message: str) -> None:
-    """Skip with an actionable command for enabling external-api integration tests."""
-    command = (
-        "cd backend && "
-        "GOOGLE_API_KEY='<your-gemini-key>' ENABLE_SCENE_UNDERSTANDING_PIPELINE=true "
-        "uv run pytest tests/integration/test_video_synopsis_e2e_integration.py "
-        "-m 'integration and external_api' -vv"
-    )
-    pytest.skip(f"{message}. Enable with: {command}")
-
-
 def _skip_corpus_e2e_with_command(message: str) -> None:
     """Skip with an actionable command for enabling no-LLM corpus e2e tests."""
     command = (
         "cd backend && "
-        "ENABLE_SCENE_UNDERSTANDING_PIPELINE=false "
         "ENABLE_CORPUS_PIPELINE=true ENABLE_CORPUS_INGEST=true "
         "uv run pytest tests/integration/test_no_llm_corpus_e2e_integration.py -m integration -vv"
     )
@@ -108,7 +98,9 @@ def _run_command(
     return False, _truncate_message(output or f"exit code {result.returncode}")
 
 
-def _read_command_output(command: list[str], *, timeout_seconds: int = 60) -> str | None:
+def _read_command_output(
+    command: list[str], *, timeout_seconds: int = 60
+) -> str | None:
     """Return command stdout text on success, otherwise None."""
     try:
         result = subprocess.run(
@@ -145,7 +137,9 @@ def _derive_neo4j_http_port(bolt_port: int) -> int:
     return 17474
 
 
-def _compose_env_for_corpus_runtime(corpus_e2e_runtime: dict[str, str]) -> dict[str, str]:
+def _compose_env_for_corpus_runtime(
+    corpus_e2e_runtime: dict[str, str],
+) -> dict[str, str]:
     """Build compose environment overrides from runtime connection settings."""
     neo4j_uri = urlparse(corpus_e2e_runtime["neo4j_uri"])
     pg_uri = urlparse(corpus_e2e_runtime["pgvector_dsn"])
@@ -179,7 +173,9 @@ def _try_start_podman_machine() -> None:
     """Best-effort Podman machine startup for macOS/local development."""
     if not shutil.which("podman"):
         return
-    _run_command(["podman", "machine", "start", "podman-machine-default"], timeout_seconds=90)
+    _run_command(
+        ["podman", "machine", "start", "podman-machine-default"], timeout_seconds=90
+    )
 
 
 def _podman_machine_socket_path() -> str | None:
@@ -292,7 +288,9 @@ def _start_local_corpus_stack_with_podman_run(
 
     neo4j_bolt_port = str(neo4j_uri.port or _DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT)
     neo4j_http_port = str(_derive_neo4j_http_port(int(neo4j_bolt_port)))
-    neo4j_auth = f"{corpus_e2e_runtime['neo4j_username']}/{corpus_e2e_runtime['neo4j_password']}"
+    neo4j_auth = (
+        f"{corpus_e2e_runtime['neo4j_username']}/{corpus_e2e_runtime['neo4j_password']}"
+    )
 
     pg_port = str(pg_uri.port or _DEFAULT_CORPUS_TEST_PGVECTOR_PORT)
     pg_user = pg_uri.username or "video_analysis"
@@ -422,14 +420,16 @@ def _is_non_retryable_probe_error(detail: str) -> bool:
         return True
     if "authentication failed" in lowered and "neo4j" in lowered:
         return True
-    if "role \"" in lowered and "does not exist" in lowered:
+    if 'role "' in lowered and "does not exist" in lowered:
         return True
-    if "database \"" in lowered and "does not exist" in lowered:
+    if 'database "' in lowered and "does not exist" in lowered:
         return True
     return False
 
 
-def _wait_for_corpus_backends(corpus_e2e_runtime: dict[str, str], *, timeout_seconds: int = 90) -> tuple[bool, str]:
+def _wait_for_corpus_backends(
+    corpus_e2e_runtime: dict[str, str], *, timeout_seconds: int = 90
+) -> tuple[bool, str]:
     """Wait until Neo4j and pgvector become ready, or timeout with last probe error."""
     deadline = time.time() + timeout_seconds
     last_error = "backends still starting"
@@ -447,6 +447,7 @@ def _wait_for_corpus_backends(corpus_e2e_runtime: dict[str, str], *, timeout_sec
 # ---------------------------------------------------------------------------
 # 2.1 — Test video path fixture (session-scoped, skips if missing)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def test_video_path():
@@ -475,6 +476,7 @@ def corpus_e2e_real_video_path(test_video_path: str) -> str:
 # 2.2 — Real model loader fixture (session-scoped)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def models():
     """Load real YOLO and MTCNN models once per session."""
@@ -485,6 +487,7 @@ def models():
 # 2.3 — Scene boundaries fixture (session-scoped)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def scenes(test_video_path):
     """Detect scenes from the real test video once per session."""
@@ -494,6 +497,7 @@ def scenes(test_video_path):
 # ---------------------------------------------------------------------------
 # 2.4 — Keyframes fixture (session-scoped)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def keyframes(test_video_path, scenes):
@@ -507,6 +511,7 @@ def keyframes(test_video_path, scenes):
 # 2.5 — Single sample frame fixture (session-scoped)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def sample_frame(keyframes):
     """Return the first extracted keyframe for use in analysis tests."""
@@ -516,6 +521,7 @@ def sample_frame(keyframes):
 # ---------------------------------------------------------------------------
 # 2.6 — Temporary static directory fixture (function-scoped)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def static_dir(tmp_path):
@@ -577,11 +583,15 @@ def corpus_e2e_runtime():
         )
 
     neo4j_uri = (
-        _read_env("NEO4J_URI", f"bolt://127.0.0.1:{_DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT}")
+        _read_env(
+            "NEO4J_URI", f"bolt://127.0.0.1:{_DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT}"
+        )
         or f"bolt://127.0.0.1:{_DEFAULT_CORPUS_TEST_NEO4J_BOLT_PORT}"
     )
     neo4j_username = _read_env("NEO4J_USERNAME", "neo4j") or "neo4j"
-    neo4j_password = _read_env("NEO4J_PASSWORD", "local-dev-password") or "local-dev-password"
+    neo4j_password = (
+        _read_env("NEO4J_PASSWORD", "local-dev-password") or "local-dev-password"
+    )
     neo4j_database = _read_env("NEO4J_DATABASE", "neo4j") or "neo4j"
     pgvector_dsn = (
         _read_env(
@@ -635,7 +645,9 @@ def corpus_e2e_db_cleanup(corpus_e2e_backend_probe):
     tracked_claim_ids: set[str] = set()
     tracked_chunk_ids: set[str] = set()
 
-    def _track(*, node_ids: list[str], claim_ids: list[str], chunk_ids: list[str]) -> None:
+    def _track(
+        *, node_ids: list[str], claim_ids: list[str], chunk_ids: list[str]
+    ) -> None:
         tracked_node_ids.update(node_ids)
         tracked_claim_ids.update(claim_ids)
         tracked_chunk_ids.update(chunk_ids)
@@ -647,7 +659,10 @@ def corpus_e2e_db_cleanup(corpus_e2e_backend_probe):
         try:
             with psycopg.connect(corpus_e2e_backend_probe["pgvector_dsn"]) as conn:
                 with conn.cursor() as cur:
-                    cur.execute("DELETE FROM corpus_chunks WHERE chunk_id = ANY(%s)", (chunk_ids,))
+                    cur.execute(
+                        "DELETE FROM corpus_chunks WHERE chunk_id = ANY(%s)",
+                        (chunk_ids,),
+                    )
                 conn.commit()
         except Exception:
             pass
@@ -661,7 +676,9 @@ def corpus_e2e_db_cleanup(corpus_e2e_backend_probe):
                     corpus_e2e_backend_probe["neo4j_password"],
                 ),
             )
-            with driver.session(database=corpus_e2e_backend_probe["neo4j_database"]) as session:
+            with driver.session(
+                database=corpus_e2e_backend_probe["neo4j_database"]
+            ) as session:
                 if tracked_node_ids:
                     session.run(
                         "MATCH (n:CorpusNode) WHERE n.node_id IN $node_ids DETACH DELETE n",
@@ -675,101 +692,3 @@ def corpus_e2e_db_cleanup(corpus_e2e_backend_probe):
             driver.close()
         except Exception:
             pass
-
-
-@pytest.fixture(scope="session")
-def gemini_api_key():
-    """Return Gemini API key for external-API integration tests, or skip."""
-    _load_env_file(_ENV_LOCAL_FILE)
-    key = _read_env("GOOGLE_API_KEY")
-    if not key:
-        _skip_with_command(
-            "GOOGLE_API_KEY is required for Gemini-backed scene-understanding smoke tests"
-        )
-    return key
-
-
-@pytest.fixture(scope="session")
-def gemini_probe(gemini_api_key):
-    """Validate Gemini client can be constructed for external-API tests."""
-    from app.video_understanding import GeminiSceneLLMClient
-
-    scene_model_id = _read_env("SCENE_MODEL_ID", "gemini-3-flash-preview") or "gemini-3-flash-preview"
-    synopsis_model_id = (
-        _read_env("SYNOPSIS_MODEL_ID", "gemini-3-flash-preview") or "gemini-3-flash-preview"
-    )
-    try:
-        GeminiSceneLLMClient(
-            google_api_key=gemini_api_key,
-            scene_model_id=scene_model_id,
-            synopsis_model_id=synopsis_model_id,
-        )
-    except Exception as exc:
-        pytest.skip(f"Skipping Gemini-backed integration tests: client setup failed ({exc}).")
-    return {
-        "scene_model_id": scene_model_id,
-        "synopsis_model_id": synopsis_model_id,
-    }
-
-
-@pytest.fixture()
-def scene_llm_smoke_settings(monkeypatch, gemini_api_key, gemini_probe):
-    """Return settings for Gemini-backed scene-understanding smoke tests."""
-    _load_env_file(_R2_ENV_FILE)
-    monkeypatch.setenv("GOOGLE_API_KEY", gemini_api_key)
-    monkeypatch.setenv("SCENE_MODEL_ID", gemini_probe["scene_model_id"])
-    monkeypatch.setenv("SYNOPSIS_MODEL_ID", gemini_probe["synopsis_model_id"])
-    monkeypatch.setenv("ENABLE_SCENE_UNDERSTANDING_PIPELINE", "true")
-    monkeypatch.setenv("ENABLE_CORPUS_PIPELINE", "false")
-    monkeypatch.setenv("ENABLE_CORPUS_INGEST", "false")
-    settings = Settings.from_env()
-
-    missing_r2 = settings.missing_r2_fields()
-    if missing_r2:
-        _skip_with_command(
-            "Missing R2 settings for scene-understanding smoke tests: " + ", ".join(missing_r2)
-        )
-    missing_llm = settings.missing_llm_fields()
-    if missing_llm:
-        _skip_with_command(
-            "Missing LLM settings for scene-understanding smoke tests: " + ", ".join(missing_llm)
-        )
-    return settings
-
-
-@pytest.fixture()
-def synopsis_e2e_settings(scene_llm_smoke_settings):
-    """Backward-compatible alias for smoke settings fixture."""
-    return scene_llm_smoke_settings
-
-
-@pytest.fixture()
-def assert_scene_llm_smoke_result():
-    """Return helper that verifies minimal non-semantic scene LLM output contract."""
-
-    def _assert(
-        result: JobResult,
-        *,
-        job_id: str,
-        synopsis_model_id: str,
-        min_scene_count: int = 1,
-    ) -> None:
-        assert len(result.scene_narratives) >= min_scene_count
-        assert result.video_synopsis is not None
-
-        for scene in result.scene_narratives:
-            assert scene.narrative_paragraph.strip() != ""
-            assert len(scene.key_moments) > 0
-            assert all(moment.strip() for moment in scene.key_moments)
-            assert scene.end_sec > scene.start_sec
-            assert scene.artifacts.packet == f"jobs/{job_id}/scene/packets/scene_{scene.scene_id}.json"
-            assert scene.artifacts.narrative == (
-                f"jobs/{job_id}/scene/narratives/scene_{scene.scene_id}.json"
-            )
-
-        synopsis = result.video_synopsis
-        assert synopsis.synopsis.strip() != ""
-        assert synopsis.artifact == f"jobs/{job_id}/summary/synopsis.json"
-        assert synopsis.model == synopsis_model_id
-
-    return _assert

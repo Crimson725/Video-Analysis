@@ -15,6 +15,7 @@ pytestmark = pytest.mark.integration
 # 3.2 — detect_scenes returns valid scene boundaries
 # ---------------------------------------------------------------------------
 
+
 class TestDetectScenesIntegration:
     def test_returns_nonempty_scene_list(self, test_video_path):
         scenes = detect_scenes(test_video_path)
@@ -37,6 +38,7 @@ class TestDetectScenesIntegration:
 # ---------------------------------------------------------------------------
 # 3.3 — extract_keyframes returns valid frame dicts
 # ---------------------------------------------------------------------------
+
 
 class TestExtractKeyframesIntegration:
     def test_returns_nonempty_frame_list(self, test_video_path, scenes):

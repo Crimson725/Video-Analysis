@@ -24,7 +24,9 @@ class WriteMetrics:
 class Neo4jWriter:
     """Manages Neo4j driver and upserts SceneGraphDelta data as a property graph."""
 
-    def __init__(self, uri: str, user: str, password: str, database: str = "neo4j") -> None:
+    def __init__(
+        self, uri: str, user: str, password: str, database: str = "neo4j"
+    ) -> None:
         from neo4j import GraphDatabase
 
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
@@ -99,47 +101,65 @@ class Neo4jWriter:
                 with session.begin_transaction() as tx:
                     # 1. Video + Scene nodes
                     self._upsert_video_scene(
-                        tx, video_id=video_id, scene_uid=scene_uid,
+                        tx,
+                        video_id=video_id,
+                        scene_uid=scene_uid,
                         scene_index=scene_index,
-                        job_id=job_id, source_key=source_key, t0=t0, t1=t1,
+                        job_id=job_id,
+                        source_key=source_key,
+                        t0=t0,
+                        t1=t1,
                         metrics=metrics,
                     )
 
                     # 2. Frame nodes
                     self._upsert_frames(
-                        tx, scene_uid=scene_uid,
+                        tx,
+                        scene_uid=scene_uid,
                         frame_ids=selected_frame_ids,
                         frame_timestamps=frame_timestamps,
                         frame_uids=frame_uids,
-                        job_id=job_id, source_key=source_key,
+                        job_id=job_id,
+                        source_key=source_key,
                         metrics=metrics,
                     )
 
                     # 3. Person and Object nodes + APPEARS_IN
                     self._upsert_entities(
-                        tx, scene_uid=scene_uid, entities=entities,
+                        tx,
+                        scene_uid=scene_uid,
+                        entities=entities,
                         job_id=job_id,
-                        t0=t0, t1=t1, metrics=metrics,
+                        t0=t0,
+                        t1=t1,
+                        metrics=metrics,
                     )
 
                     # 4. Event nodes + HAS_EVENT + INVOLVES
                     self._upsert_events(
-                        tx, scene_uid=scene_uid, events=events,
-                        job_id=job_id, source_key=source_key,
+                        tx,
+                        scene_uid=scene_uid,
+                        events=events,
+                        job_id=job_id,
+                        source_key=source_key,
                         metrics=metrics,
                     )
 
                     # 5. REL relationships
                     self._upsert_relations(
-                        tx, scene_uid=scene_uid, relations=relations,
+                        tx,
+                        scene_uid=scene_uid,
+                        relations=relations,
                         metrics=metrics,
                     )
 
                     # 6. POSSIBLY_SAME_AS edges
                     if possibly_same_as:
                         self._upsert_possibly_same_as(
-                            tx, possibly_same_as=possibly_same_as,
-                            scene_uid=scene_uid, metrics=metrics,
+                            tx,
+                            possibly_same_as=possibly_same_as,
+                            scene_uid=scene_uid,
+                            metrics=metrics,
                         )
 
                     tx.commit()
@@ -276,7 +296,8 @@ class Neo4jWriter:
 
                 attr_set_clauses = ", ".join(
                     f"n.{k.removeprefix('attr_')} = ${k}"
-                    for k in param if k.startswith("attr_")
+                    for k in param
+                    if k.startswith("attr_")
                 )
                 set_clause = f"SET {attr_set_clauses}" if attr_set_clauses else ""
                 result = tx.run(
@@ -320,7 +341,8 @@ class Neo4jWriter:
 
                 attr_set_clauses = ", ".join(
                     f"n.{k.removeprefix('attr_')} = ${k}"
-                    for k in param if k.startswith("attr_")
+                    for k in param
+                    if k.startswith("attr_")
                 )
                 extra_set = f", {attr_set_clauses}" if attr_set_clauses else ""
                 result = tx.run(
@@ -359,18 +381,24 @@ class Neo4jWriter:
             return
         event_params = []
         for ev in events:
-            event_params.append({
-                "event_uid": ev["event_uid"],
-                "event_id": ev["event_id"],
-                "event_type": ev["event_type"],
-                "t0": ev.get("time_span_s", [0, 0])[0] if isinstance(ev.get("time_span_s"), (list, tuple)) else 0,
-                "t1": ev.get("time_span_s", [0, 0])[1] if isinstance(ev.get("time_span_s"), (list, tuple)) else 0,
-                "summary": ev.get("summary", ""),
-                "confidence": ev.get("confidence", 0.0),
-                "scene_uid": scene_uid,
-                "job_id": job_id,
-                "source_key": source_key,
-            })
+            event_params.append(
+                {
+                    "event_uid": ev["event_uid"],
+                    "event_id": ev["event_id"],
+                    "event_type": ev["event_type"],
+                    "t0": ev.get("time_span_s", [0, 0])[0]
+                    if isinstance(ev.get("time_span_s"), (list, tuple))
+                    else 0,
+                    "t1": ev.get("time_span_s", [0, 0])[1]
+                    if isinstance(ev.get("time_span_s"), (list, tuple))
+                    else 0,
+                    "summary": ev.get("summary", ""),
+                    "confidence": ev.get("confidence", 0.0),
+                    "scene_uid": scene_uid,
+                    "job_id": job_id,
+                    "source_key": source_key,
+                }
+            )
         result = tx.run(
             """
             UNWIND $events AS e
@@ -412,7 +440,9 @@ class Neo4jWriter:
                     scene_uid=scene_uid,
                 )
                 inv_summary = result.consume()
-                metrics.relationships_created += inv_summary.counters.relationships_created
+                metrics.relationships_created += (
+                    inv_summary.counters.relationships_created
+                )
 
     # ------------------------------------------------------------------
     # REL relationships
@@ -432,8 +462,16 @@ class Neo4jWriter:
             subject_uid = rel.get("subject_uid", "")
             object_uid = rel.get("object_uid", "")
             predicate = rel.get("predicate", "")
-            t0 = rel.get("time_span_s", [0, 0])[0] if isinstance(rel.get("time_span_s"), (list, tuple)) else 0
-            t1 = rel.get("time_span_s", [0, 0])[1] if isinstance(rel.get("time_span_s"), (list, tuple)) else 0
+            t0 = (
+                rel.get("time_span_s", [0, 0])[0]
+                if isinstance(rel.get("time_span_s"), (list, tuple))
+                else 0
+            )
+            t1 = (
+                rel.get("time_span_s", [0, 0])[1]
+                if isinstance(rel.get("time_span_s"), (list, tuple))
+                else 0
+            )
             confidence = rel.get("confidence", 0.0)
             evidence = json.dumps(rel.get("evidence", {}), default=str)
 

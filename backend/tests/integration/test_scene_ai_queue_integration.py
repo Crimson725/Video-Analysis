@@ -8,7 +8,12 @@ import pytest
 
 from app import jobs
 from app.scene_ai_worker import SceneAIWorker
-from app.scene_task_queue import QUEUE_STATUS_DEAD_LETTER, QUEUE_STATUS_SUCCEEDED, InMemorySceneTaskQueue, SceneTask
+from app.scene_task_queue import (
+    QUEUE_STATUS_DEAD_LETTER,
+    QUEUE_STATUS_SUCCEEDED,
+    InMemorySceneTaskQueue,
+    SceneTask,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -48,7 +53,7 @@ def _frame_payload(job_id: str) -> dict:
 
 def _settings(**overrides):
     defaults = {
-        "enable_scene_understanding_pipeline": True,
+        "kg_pipeline_enabled": True,
         "scene_ai_execution_mode": "queue",
         "scene_ai_max_attempts": 2,
         "scene_ai_lease_timeout_seconds": 30,
@@ -57,10 +62,7 @@ def _settings(**overrides):
         "scene_ai_retry_backoff_max_seconds": 60,
         "scene_ai_worker_poll_interval_seconds": 1,
         "scene_ai_failure_policy": "fail_job",
-        "scene_ai_prompt_version": "v1",
-        "scene_ai_runtime_version": "v1",
         "scene_model_id": "gemini-3-flash-preview",
-        "synopsis_model_id": "gemini-3-flash-preview",
         "enable_corpus_pipeline": True,
         "enable_corpus_ingest": False,
         "cleanup_local_video_after_upload_default": True,
@@ -70,7 +72,7 @@ def _settings(**overrides):
     return SimpleNamespace(**defaults)
 
 
-def test_queue_mode_enforces_stage_order_cv_then_scene_then_corpus():
+def test_queue_mode_enforces_stage_order_cv_then_kg_then_corpus():
     queue = InMemorySceneTaskQueue()
     job_id = jobs.create_job()
     order: list[str] = []
@@ -84,7 +86,9 @@ def test_queue_mode_enforces_stage_order_cv_then_scene_then_corpus():
         patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)]),
         patch(
             "app.main.scene.extract_keyframes",
-            return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}],
+            return_value=[
+                {"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}
+            ],
         ),
         patch("app.main.scene.save_original_frames"),
         patch("app.main.analysis.analyze_frame") as mock_analyze_frame,
@@ -110,14 +114,23 @@ def test_queue_mode_enforces_stage_order_cv_then_scene_then_corpus():
         worker_id="worker-order",
         media_store_factory=lambda: MagicMock(name="worker_store"),
     )
+
+    fake_kg_result = {
+        "scene_id": 0,
+        "scene_graph_delta": {"entities": [], "relations": [], "events": []},
+        "validation_errors": [],
+        "retry_count": 0,
+    }
+
     with (
         patch(
-            "app.scene_ai_worker.video_understanding.run_scene_understanding_pipeline",
+            "app.scene_ai_worker.run_kg_workflow",
             side_effect=lambda **kwargs: (
-                order.append("scene_ai"),
-                {"scene_narratives": [], "video_synopsis": None},
+                order.append("kg"),
+                fake_kg_result,
             )[1],
         ),
+        patch.object(SceneAIWorker, "_get_neo4j_writer", return_value=None),
         patch(
             "app.scene_ai_worker.corpus.build",
             side_effect=lambda **kwargs: (
@@ -133,7 +146,7 @@ def test_queue_mode_enforces_stage_order_cv_then_scene_then_corpus():
     ):
         assert worker.process_next_task() is True
 
-    assert order == ["cv", "scene_ai", "corpus"]
+    assert order == ["cv", "kg", "corpus"]
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
@@ -154,7 +167,7 @@ def test_retry_backoff_and_dead_letter_transitions_include_non_retryable_case():
             "frame_results": [{"frame_id": 0, "timestamp": "00:00:01.000"}],
             "source_key": f"jobs/{retry_job}/input/source.mp4",
         },
-        idempotency_key=f"{retry_job}:scene_understanding:v1",
+        idempotency_key=f"{retry_job}:scene_worker:v1",
         max_attempts=2,
     )
     worker = SceneAIWorker.from_settings(
@@ -164,9 +177,12 @@ def test_retry_backoff_and_dead_letter_transitions_include_non_retryable_case():
         media_store_factory=lambda: MagicMock(name="store"),
     )
 
-    with patch(
-        "app.scene_ai_worker.video_understanding.run_scene_understanding_pipeline",
-        side_effect=RuntimeError("provider timeout"),
+    with (
+        patch(
+            "app.scene_ai_worker.run_kg_workflow",
+            side_effect=RuntimeError("provider timeout"),
+        ),
+        patch.object(SceneAIWorker, "_get_neo4j_writer", return_value=None),
     ):
         assert worker.process_next_task() is True
         task_after_first = queue.get_task(task_id=retry_task.task_id)
@@ -191,7 +207,7 @@ def test_retry_backoff_and_dead_letter_transitions_include_non_retryable_case():
             "frame_results": [],
             "source_key": "",
         },
-        idempotency_key=f"{non_retry_job}:scene_understanding:v1",
+        idempotency_key=f"{non_retry_job}:scene_worker:v1",
         max_attempts=2,
     )
     assert worker.process_next_task() is True
@@ -202,7 +218,7 @@ def test_retry_backoff_and_dead_letter_transitions_include_non_retryable_case():
 
 def test_duplicate_delivery_keeps_single_terminal_success():
     queue = InMemorySceneTaskQueue()
-    settings = _settings(enable_corpus_pipeline=False)
+    settings = _settings(enable_corpus_pipeline=False, kg_pipeline_enabled=False)
     job_id = jobs.create_job()
     enqueued = queue.enqueue_task(
         job_id=job_id,
@@ -212,7 +228,7 @@ def test_duplicate_delivery_keeps_single_terminal_success():
             "frame_results": [{"frame_id": 0, "timestamp": "00:00:01.000"}],
             "source_key": f"jobs/{job_id}/input/source.mp4",
         },
-        idempotency_key=f"{job_id}:scene_understanding:v1",
+        idempotency_key=f"{job_id}:scene_worker:v1",
         max_attempts=2,
     )
     worker_a = SceneAIWorker.from_settings(
@@ -227,44 +243,41 @@ def test_duplicate_delivery_keeps_single_terminal_success():
         worker_id="worker-b",
         media_store_factory=lambda: MagicMock(name="store"),
     )
-    with patch(
-        "app.scene_ai_worker.video_understanding.run_scene_understanding_pipeline",
-        return_value={"scene_narratives": [], "video_synopsis": None},
-    ):
-        assert worker_a.process_next_task() is True
-        succeeded = queue.get_task(task_id=enqueued.task_id)
-        assert succeeded is not None
-        assert succeeded.status == QUEUE_STATUS_SUCCEEDED
-        duplicate = SceneTask(
-            task_id=succeeded.task_id,
-            job_id=succeeded.job_id,
-            task_type=succeeded.task_type,
-            status="processing",
-            attempts=succeeded.attempts,
-            max_attempts=succeeded.max_attempts,
-            lease_owner="worker-b",
-            lease_expires_at=datetime.now(UTC) + timedelta(seconds=30),
-            next_attempt_at=succeeded.next_attempt_at,
-            idempotency_key=succeeded.idempotency_key,
-            payload=succeeded.payload,
-            result_metadata=None,
-            last_error=None,
-            error_metadata=None,
-            created_at=succeeded.created_at,
-            updated_at=succeeded.updated_at,
-            completed_at=None,
-        )
-        worker_b._execute_task(duplicate)
+
+    assert worker_a.process_next_task() is True
+    succeeded = queue.get_task(task_id=enqueued.task_id)
+    assert succeeded is not None
+    assert succeeded.status == QUEUE_STATUS_SUCCEEDED
+    duplicate = SceneTask(
+        task_id=succeeded.task_id,
+        job_id=succeeded.job_id,
+        task_type=succeeded.task_type,
+        status="processing",
+        attempts=succeeded.attempts,
+        max_attempts=succeeded.max_attempts,
+        lease_owner="worker-b",
+        lease_expires_at=datetime.now(UTC) + timedelta(seconds=30),
+        next_attempt_at=succeeded.next_attempt_at,
+        idempotency_key=succeeded.idempotency_key,
+        payload=succeeded.payload,
+        result_metadata=None,
+        last_error=None,
+        error_metadata=None,
+        created_at=succeeded.created_at,
+        updated_at=succeeded.updated_at,
+        completed_at=None,
+    )
+    worker_b._execute_task(duplicate)
 
     final = queue.get_task(task_id=enqueued.task_id)
     assert final is not None
     assert final.status == QUEUE_STATUS_SUCCEEDED
 
 
-def test_queue_mode_with_scene_disabled_keeps_empty_scene_outputs():
+def test_queue_mode_with_kg_disabled_completes_without_queue():
     queue = InMemorySceneTaskQueue()
     settings = _settings(
-        enable_scene_understanding_pipeline=False,
+        kg_pipeline_enabled=False,
         enable_corpus_pipeline=False,
         enable_corpus_ingest=False,
     )
@@ -278,7 +291,9 @@ def test_queue_mode_with_scene_disabled_keeps_empty_scene_outputs():
         patch("app.main.scene.detect_scenes", return_value=[(0.0, 1.0)]),
         patch(
             "app.main.scene.extract_keyframes",
-            return_value=[{"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}],
+            return_value=[
+                {"frame_id": 0, "timestamp": "00:00:01.000", "image": object()}
+            ],
         ),
         patch("app.main.scene.save_original_frames"),
         patch("app.main.analysis.analyze_frame", return_value=_frame_payload(job_id)),
@@ -296,6 +311,6 @@ def test_queue_mode_with_scene_disabled_keeps_empty_scene_outputs():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert job["result"]["scene_narratives"] == []
-    assert job["result"]["video_synopsis"] is None
+    assert "scene_narratives" not in job["result"]
+    assert "video_synopsis" not in job["result"]
     assert "scene_task_id" not in job

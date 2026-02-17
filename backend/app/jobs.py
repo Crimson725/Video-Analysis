@@ -7,7 +7,9 @@ from typing import Any
 jobs: dict[str, dict[str, Any]] = {}
 
 
-def create_job(metadata: dict[str, Any] | None = None, job_id: str | None = None) -> str:
+def create_job(
+    metadata: dict[str, Any] | None = None, job_id: str | None = None
+) -> str:
     """Create a new job, return job_id."""
     assigned_job_id = job_id or str(uuid.uuid4())
     job_record: dict[str, Any] = {

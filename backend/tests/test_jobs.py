@@ -2,7 +2,14 @@
 
 import uuid
 
-from app.jobs import complete_job, create_job, fail_job, get_job, set_job_stage, update_job_metadata
+from app.jobs import (
+    complete_job,
+    create_job,
+    fail_job,
+    get_job,
+    set_job_stage,
+    update_job_metadata,
+)
 
 
 class TestCreateJob:

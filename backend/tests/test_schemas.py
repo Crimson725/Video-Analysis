@@ -13,16 +13,15 @@ from app.schemas import (
     JobResult,
     SegmentationItem,
     SceneEntity,
-    SceneArtifacts,
-    SceneNarrativeResult,
     SceneTemporalSpan,
-    VideoSynopsisResult,
 )
 
 
 class TestSegmentationItem:
     def test_class_alias_serialization(self):
-        item = SegmentationItem(object_id=1, class_name="person", mask_polygon=[[0, 0], [1, 1]])
+        item = SegmentationItem(
+            object_id=1, class_name="person", mask_polygon=[[0, 0], [1, 1]]
+        )
         data = item.model_dump(by_alias=True)
         assert "class" in data
         assert data["class"] == "person"
@@ -55,16 +54,22 @@ class TestSegmentationItem:
 
 class TestDetectionItem:
     def test_valid_box(self):
-        item = DetectionItem(track_id="dog_1", label="dog", confidence=0.95, box=[10, 20, 30, 40])
+        item = DetectionItem(
+            track_id="dog_1", label="dog", confidence=0.95, box=[10, 20, 30, 40]
+        )
         assert item.box == [10, 20, 30, 40]
 
     def test_rejects_box_with_3_elements(self):
         with pytest.raises(ValidationError):
-            DetectionItem(track_id="dog_1", label="dog", confidence=0.95, box=[10, 20, 30])
+            DetectionItem(
+                track_id="dog_1", label="dog", confidence=0.95, box=[10, 20, 30]
+            )
 
     def test_rejects_box_with_5_elements(self):
         with pytest.raises(ValidationError):
-            DetectionItem(track_id="dog_1", label="dog", confidence=0.95, box=[10, 20, 30, 40, 50])
+            DetectionItem(
+                track_id="dog_1", label="dog", confidence=0.95, box=[10, 20, 30, 40, 50]
+            )
 
     def test_track_id_is_required(self):
         with pytest.raises(ValidationError):
@@ -223,13 +228,11 @@ class TestJobResult:
         assert len(result.frames) == 1
         assert result.frames[0].frame_id == 0
 
-    def test_scene_outputs_are_optional(self):
+    def test_optional_fields_default_to_none(self):
         result = JobResult(
             job_id="abc-123",
             frames=[],
         )
-        assert result.scene_narratives == []
-        assert result.video_synopsis is None
         assert result.video_face_identities is None
         assert result.video_person_tracks is None
         assert result.video_object_tracks is None
@@ -250,7 +253,10 @@ class TestJobResult:
         )
 
         assert result.video_face_identities is not None
-        assert result.video_face_identities["video_identities"][0]["video_person_id"] == "video_person_1"
+        assert (
+            result.video_face_identities["video_identities"][0]["video_person_id"]
+            == "video_person_1"
+        )
 
     def test_job_result_accepts_video_person_tracks(self):
         result = JobResult(
@@ -263,7 +269,10 @@ class TestJobResult:
         )
 
         assert result.video_person_tracks is not None
-        assert result.video_person_tracks["tracks"][0]["person_track_id"] == "person_track_123"
+        assert (
+            result.video_person_tracks["tracks"][0]["person_track_id"]
+            == "person_track_123"
+        )
 
     def test_job_result_accepts_video_object_tracks(self):
         result = JobResult(
@@ -310,49 +319,9 @@ class TestJobResult:
         )
 
         assert result.video_object_tracks is not None
-        assert result.video_object_tracks.tracks[0].object_track_id == "object_track_123"
-
-    def test_scene_narrative_requires_key_moments(self):
-        with pytest.raises(ValidationError):
-            SceneNarrativeResult(
-                scene_id=0,
-                start_sec=0.0,
-                end_sec=3.0,
-                narrative_paragraph="test",
-                key_moments=[],
-                artifacts=SceneArtifacts(
-                    packet="jobs/j/scene/packets/scene_0.json",
-                    narrative="jobs/j/scene/narratives/scene_0.json",
-                ),
-            )
-
-    def test_job_result_with_scene_outputs(self):
-        result = JobResult(
-            job_id="abc-123",
-            frames=[],
-            scene_narratives=[
-                SceneNarrativeResult(
-                    scene_id=0,
-                    start_sec=0.0,
-                    end_sec=3.0,
-                    narrative_paragraph="Scene summary.",
-                    key_moments=["moment 1"],
-                    artifacts=SceneArtifacts(
-                        packet="jobs/j/scene/packets/scene_0.json",
-                        narrative="jobs/j/scene/narratives/scene_0.json",
-                    ),
-                    trace={"stage": "scene_narrative"},
-                )
-            ],
-            video_synopsis=VideoSynopsisResult(
-                synopsis="Combined synopsis.",
-                artifact="jobs/j/summary/synopsis.json",
-                model="gemini-3-flash-preview",
-                trace={"stage": "video_synopsis"},
-            ),
+        assert (
+            result.video_object_tracks.tracks[0].object_track_id == "object_track_123"
         )
-        assert len(result.scene_narratives) == 1
-        assert result.video_synopsis is not None
 
 
 class TestCorpusSchemaValidation:
@@ -364,6 +333,8 @@ class TestCorpusSchemaValidation:
                 entity_type="object",
                 count=1,
                 confidence=0.9,
-                temporal_span=SceneTemporalSpan(first_seen=0.0, last_seen=1.0, duration_sec=1.0),
+                temporal_span=SceneTemporalSpan(
+                    first_seen=0.0, last_seen=1.0, duration_sec=1.0
+                ),
                 evidence=[],
             )

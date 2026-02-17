@@ -6,16 +6,15 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
-from app import corpus, jobs, video_understanding
+from app import corpus, jobs
 from app.scene_kg_workflow import run_kg_workflow
 from app.scene_ai_worker_contracts import (
     SceneWorkerTaskInput,
-    attach_worker_provenance,
-    build_worker_provenance,
 )
+from app.scene_bundle import select_scene_frames
 from app.scene_task_queue import (
     QUEUE_STATUS_DEAD_LETTER,
     QUEUE_STATUS_FAILED,
@@ -32,25 +31,6 @@ logger = logging.getLogger(__name__)
 
 class NonRetryableSceneWorkerError(RuntimeError):
     """Error category for malformed/non-recoverable task failures."""
-
-
-def _default_scene_outputs() -> dict[str, Any]:
-    return {"scene_narratives": [], "video_synopsis": None}
-
-
-def _normalize_scene_outputs(raw_scene_outputs: Any) -> dict[str, Any]:
-    defaults = _default_scene_outputs()
-    if not isinstance(raw_scene_outputs, dict):
-        return defaults
-    raw_scene_narratives = raw_scene_outputs.get("scene_narratives", [])
-    if not isinstance(raw_scene_narratives, list):
-        scene_narratives: list[dict[str, Any]] = []
-    else:
-        scene_narratives = [item for item in raw_scene_narratives if isinstance(item, dict)]
-    video_synopsis = raw_scene_outputs.get("video_synopsis")
-    if not isinstance(video_synopsis, dict):
-        video_synopsis = None
-    return {"scene_narratives": scene_narratives, "video_synopsis": video_synopsis}
 
 
 def _build_media_store(settings: "Settings") -> MediaStore:
@@ -93,7 +73,8 @@ class SceneAIWorker:
             settings=settings,
             queue=queue,
             worker_id=worker_id or f"scene-worker-{uuid4()}",
-            media_store_factory=media_store_factory or (lambda: _build_media_store(settings)),
+            media_store_factory=media_store_factory
+            or (lambda: _build_media_store(settings)),
         )
 
     def _get_neo4j_writer(self) -> Any:
@@ -105,7 +86,9 @@ class SceneAIWorker:
             user = getattr(self.settings, "neo4j_username", "neo4j")
             password = getattr(self.settings, "neo4j_password", "local-dev-password")
             database = getattr(self.settings, "neo4j_database", "neo4j")
-            writer = Neo4jWriter(uri=uri, user=user, password=password, database=database)
+            writer = Neo4jWriter(
+                uri=uri, user=user, password=password, database=database
+            )
             writer.ensure_constraints()
             return writer
         except Exception as exc:
@@ -136,7 +119,11 @@ class SceneAIWorker:
     def run_forever(self) -> None:
         """Run polling loop until interrupted."""
         poll_seconds = max(1, int(self.settings.scene_ai_worker_poll_interval_seconds))
-        logger.info("scene_ai_worker.start worker_id=%s poll_seconds=%s", self.worker_id, poll_seconds)
+        logger.info(
+            "scene_ai_worker.start worker_id=%s poll_seconds=%s",
+            self.worker_id,
+            poll_seconds,
+        )
         while True:
             processed = self.process_next_task()
             if not processed:
@@ -152,23 +139,11 @@ class SceneAIWorker:
 
             media_store = self.media_store_factory()
             jobs.set_job_stage(task_input.job_id, "scene_ai_processing")
-            scene_outputs = _default_scene_outputs()
-            if self.settings.enable_scene_understanding_pipeline:
-                scene_outputs = _normalize_scene_outputs(
-                    video_understanding.run_scene_understanding_pipeline(
-                        job_id=task_input.job_id,
-                        scenes=task_input.scenes,
-                        frame_results=task_input.frame_results,
-                        settings=self.settings,
-                        media_store=media_store,
-                    )
-                )
 
-            # KG enrichment pipeline (runs alongside narrative pipeline)
+            # KG enrichment pipeline
             kg_results: list[dict] = []
             if getattr(self.settings, "kg_pipeline_enabled", False):
                 neo4j_writer = self._get_neo4j_writer()
-                from app.scene_packet_builder import select_scene_frames
 
                 for scene_idx, (start_sec, end_sec) in enumerate(task_input.scenes):
                     scene_frames = select_scene_frames(
@@ -198,25 +173,23 @@ class SceneAIWorker:
                         neo4j_writer.close()
                     except Exception:
                         pass
-                scene_outputs["kg_results"] = kg_results
 
                 # Log KG pipeline metrics
                 total_scenes = len(kg_results)
                 validation_failures = sum(
-                    1 for r in kg_results
-                    if r.get("validation_errors")
+                    1 for r in kg_results if r.get("validation_errors")
                 )
-                repair_count = sum(
-                    r.get("retry_count", 0) for r in kg_results
-                )
+                repair_count = sum(r.get("retry_count", 0) for r in kg_results)
                 total_edges = sum(
                     len(r.get("scene_graph_delta", {}).relations)
-                    if hasattr(r.get("scene_graph_delta"), "relations") else 0
+                    if hasattr(r.get("scene_graph_delta"), "relations")
+                    else 0
                     for r in kg_results
                 )
                 total_events = sum(
                     len(r.get("scene_graph_delta", {}).events)
-                    if hasattr(r.get("scene_graph_delta"), "events") else 0
+                    if hasattr(r.get("scene_graph_delta"), "events")
+                    else 0
                     for r in kg_results
                 )
                 logger.info(
@@ -230,28 +203,22 @@ class SceneAIWorker:
                     total_edges,
                     total_events,
                 )
-            provenance = build_worker_provenance(
-                worker_id=self.worker_id,
-                attempt=task.attempts,
-                scene_model_id=self.settings.scene_model_id,
-                synopsis_model_id=self.settings.synopsis_model_id,
-                prompt_version=self.settings.scene_ai_prompt_version,
-                runtime_version=self.settings.scene_ai_runtime_version,
-            )
-            scene_outputs = attach_worker_provenance(
-                scene_outputs=scene_outputs,
-                provenance=provenance,
-            )
+
+            result_metadata = {
+                "worker_id": self.worker_id,
+                "attempt": task.attempts,
+                "scene_model_id": self.settings.scene_model_id,
+            }
             payload = self._build_final_payload(
                 task_input=task_input,
-                scene_outputs=scene_outputs,
+                kg_results=kg_results,
                 media_store=media_store,
             )
             jobs.complete_job(task_input.job_id, payload)
             completed = self.queue.mark_succeeded(
                 task_id=task.task_id,
                 lease_owner=self.worker_id,
-                result_metadata=provenance,
+                result_metadata=result_metadata,
             )
             if completed is None:
                 logger.info(
@@ -277,7 +244,7 @@ class SceneAIWorker:
         self,
         *,
         task_input: SceneWorkerTaskInput,
-        scene_outputs: dict[str, Any],
+        kg_results: list[dict[str, Any]],
         media_store: MediaStore,
     ) -> dict[str, Any]:
         corpus_output: dict[str, Any] | None = None
@@ -287,15 +254,14 @@ class SceneAIWorker:
                 job_id=task_input.job_id,
                 scenes=task_input.scenes,
                 frame_results=task_input.frame_results,
-                scene_outputs=scene_outputs,
                 settings=self.settings,
                 media_store=media_store,
             )
         return {
             "job_id": task_input.job_id,
             "frames": task_input.frame_results,
-            **scene_outputs,
             "corpus": corpus_output,
+            "kg_results": kg_results,
             "video_face_identities": task_input.video_face_identities,
             "video_person_tracks": task_input.video_person_tracks,
             "video_object_tracks": task_input.video_object_tracks,
@@ -361,7 +327,7 @@ class SceneAIWorker:
                 task_input = SceneWorkerTaskInput.from_payload(task.payload)
                 payload = self._build_final_payload(
                     task_input=task_input,
-                    scene_outputs=_default_scene_outputs(),
+                    kg_results=[],
                     media_store=media_store,
                 )
                 jobs.complete_job(task.job_id, payload)

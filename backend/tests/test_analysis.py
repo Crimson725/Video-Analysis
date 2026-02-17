@@ -21,6 +21,7 @@ from app.analysis import (
 # 4.1 — _to_int_coords
 # ---------------------------------------------------------------------------
 
+
 class TestToIntCoords:
     def test_positive_float_rounds_up(self):
         assert _to_int_coords(10.6) == 11
@@ -41,6 +42,7 @@ class TestToIntCoords:
 # ---------------------------------------------------------------------------
 # 4.2 — run_segmentation
 # ---------------------------------------------------------------------------
+
 
 class TestRunSegmentation:
     @patch("app.analysis.cv2.imwrite")
@@ -126,13 +128,18 @@ class TestRunSegmentation:
 # 4.3 — run_detection
 # ---------------------------------------------------------------------------
 
+
 class TestRunDetection:
     @patch("app.analysis.cv2.imwrite")
     def test_detected_boxes_return_structured_items(
         self, mock_imwrite, make_yolo_result, static_dir
     ):
         yolo_result = make_yolo_result(
-            boxes=[[10.0, 20.0, 30.0, 40.0], [50.0, 60.0, 70.0, 80.0], [1.0, 2.0, 3.0, 4.0]],
+            boxes=[
+                [10.0, 20.0, 30.0, 40.0],
+                [50.0, 60.0, 70.0, 80.0],
+                [1.0, 2.0, 3.0, 4.0],
+            ],
             cls_ids=[0, 1, 2],
             confs=[0.95, 0.88, 0.76],
             names={0: "person", 1: "car", 2: "dog"},
@@ -245,13 +252,12 @@ class TestRunDetection:
 # 4.4 — run_face_recognition
 # ---------------------------------------------------------------------------
 
+
 class TestRunFaceRecognition:
     @patch("app.analysis.cv2.imwrite")
     @patch("app.analysis.cv2.cvtColor")
     @patch("app.analysis.cv2.rectangle")
-    def test_faces_above_threshold(
-        self, mock_rect, mock_cvt, mock_imwrite, static_dir
-    ):
+    def test_faces_above_threshold(self, mock_rect, mock_cvt, mock_imwrite, static_dir):
         mock_cvt.return_value = np.zeros((100, 100, 3), dtype=np.uint8)
 
         face_detector = MagicMock()
@@ -348,9 +354,7 @@ class TestRunFaceRecognition:
 
     @patch("app.analysis.cv2.imwrite")
     @patch("app.analysis.cv2.cvtColor")
-    def test_no_faces_returns_empty_list(
-        self, mock_cvt, mock_imwrite, static_dir
-    ):
+    def test_no_faces_returns_empty_list(self, mock_cvt, mock_imwrite, static_dir):
         mock_cvt.return_value = np.zeros((100, 100, 3), dtype=np.uint8)
 
         face_detector = MagicMock()
@@ -420,6 +424,7 @@ class TestRunFaceRecognition:
 # 4.5 — analyze_frame
 # ---------------------------------------------------------------------------
 
+
 class TestAnalyzeFrame:
     @patch("app.analysis.run_face_recognition")
     @patch("app.analysis.run_detection")
@@ -477,7 +482,10 @@ class TestAnalyzeFrame:
         assert "object_detection" in result["analysis"]
         assert "face_recognition" in result["analysis"]
         assert "enrichment" in result["analysis"]
-        assert result["analysis_artifacts"]["json"] == "jobs/job-1/analysis/json/frame_0.json"
+        assert (
+            result["analysis_artifacts"]["json"]
+            == "jobs/job-1/analysis/json/frame_0.json"
+        )
         assert set(result["analysis_artifacts"].keys()) == {"json"}
         assert "metadata" in result
         assert result["metadata"]["provenance"]["job_id"] == "job-1"
@@ -535,7 +543,9 @@ class TestAnalyzeFrame:
             "timestamp": "00:00:05.000",
         }
 
-        analyze_frame(frame_data, mock_models, "job-1", static_dir, media_store=media_store)
+        analyze_frame(
+            frame_data, mock_models, "job-1", static_dir, media_store=media_store
+        )
 
         assert media_store.upload_analysis_artifact.call_count == 1
         first_call = media_store.upload_analysis_artifact.call_args_list[0]
@@ -543,7 +553,12 @@ class TestAnalyzeFrame:
         assert first_call.args[0:3] == ("job-1", "json", 0)
         json_payload = json.loads(first_call.args[3].decode("utf-8"))
         assert json_payload["frame_id"] == 0
-        assert set(json_payload["files"].keys()) == {"original", "segmentation", "detection", "face"}
+        assert set(json_payload["files"].keys()) == {
+            "original",
+            "segmentation",
+            "detection",
+            "face",
+        }
         assert set(json_payload["analysis_artifacts"].keys()) == {"json"}
         assert "metadata" in json_payload
         assert json_payload["analysis"]["object_detection"][0]["track_id"] == "car_1"
@@ -597,11 +612,17 @@ class TestAnalyzeFrame:
             "timestamp": "00:00:02.000",
         }
 
-        analyze_frame(frame_0, mock_models, "job-1", static_dir, media_store=media_store)
-        analyze_frame(frame_1, mock_models, "job-1", static_dir, media_store=media_store)
+        analyze_frame(
+            frame_0, mock_models, "job-1", static_dir, media_store=media_store
+        )
+        analyze_frame(
+            frame_1, mock_models, "job-1", static_dir, media_store=media_store
+        )
 
         json_calls = [
-            c for c in media_store.upload_analysis_artifact.call_args_list if c.args[1] == "json"
+            c
+            for c in media_store.upload_analysis_artifact.call_args_list
+            if c.args[1] == "json"
         ]
         assert len(json_calls) == 2
         assert json_calls[0].args[2] == 0
@@ -623,7 +644,9 @@ class TestAnalyzeFrame:
         }
 
         with pytest.raises(RuntimeError, match="contract validation failed"):
-            analyze_frame(frame_data, mock_models, "job-1", static_dir, media_store=media_store)
+            analyze_frame(
+                frame_data, mock_models, "job-1", static_dir, media_store=media_store
+            )
 
         media_store.upload_analysis_artifact.assert_not_called()
 
@@ -664,7 +687,9 @@ class TestAnalyzeFrame:
         ]
 
         media_store = MagicMock()
-        media_store.upload_analysis_artifact.side_effect = RuntimeError("json upload failed")
+        media_store.upload_analysis_artifact.side_effect = RuntimeError(
+            "json upload failed"
+        )
         frame_data = {
             "image": np.zeros((100, 100, 3), dtype=np.uint8),
             "frame_id": 3,
@@ -672,7 +697,9 @@ class TestAnalyzeFrame:
         }
 
         with pytest.raises(RuntimeError, match="Failed to persist analysis artifacts"):
-            analyze_frame(frame_data, mock_models, "job-7", static_dir, media_store=media_store)
+            analyze_frame(
+                frame_data, mock_models, "job-7", static_dir, media_store=media_store
+            )
 
         delete_keys = [c.args[0] for c in media_store.delete_object.call_args_list]
         assert "jobs/job-7/analysis/json/frame_3.json" in delete_keys

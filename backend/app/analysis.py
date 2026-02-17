@@ -245,7 +245,9 @@ def _persist_visualization(
     if media_store is not None:
         ok, encoded = cv2.imencode(".jpg", image)
         if not ok:
-            raise RuntimeError(f"Failed to encode {frame_kind} frame {frame_id} as JPEG")
+            raise RuntimeError(
+                f"Failed to encode {frame_kind} frame {frame_id} as JPEG"
+            )
         media_store.upload_frame_image(
             job_id=job_id,
             frame_kind=frame_kind,
@@ -549,7 +551,9 @@ def _persist_analysis_artifacts(
         ) from exc
 
 
-def _extract_model_provenance(component: str, model: Any, threshold: float | None = None) -> dict[str, Any]:
+def _extract_model_provenance(
+    component: str, model: Any, threshold: float | None = None
+) -> dict[str, Any]:
     """Build a compact model provenance entry for frame metadata."""
     model_id = (
         getattr(model, "model_name", None)
@@ -661,9 +665,7 @@ def _normalize_quality(raw: Any) -> dict[str, Any] | None:
         return None
     return {
         "blur_score": (
-            float(raw.get("blur_score"))
-            if raw.get("blur_score") is not None
-            else None
+            float(raw.get("blur_score")) if raw.get("blur_score") is not None else None
         ),
         "is_blurry": (
             bool(raw.get("is_blurry")) if raw.get("is_blurry") is not None else None
@@ -674,7 +676,9 @@ def _normalize_quality(raw: Any) -> dict[str, Any] | None:
     }
 
 
-def _collect_enrichment_payload(models: Any, image: np.ndarray, frame_id: int) -> dict[str, Any]:
+def _collect_enrichment_payload(
+    models: Any, image: np.ndarray, frame_id: int
+) -> dict[str, Any]:
     """Run optional enrichment hooks and normalize outputs."""
     ocr_raw = []
     action_raw = []
@@ -688,12 +692,16 @@ def _collect_enrichment_payload(models: Any, image: np.ndarray, frame_id: int) -
         action_raw = _invoke_optional_enricher(models.action_enricher, image, frame_id)
     if hasattr(models, "pose_enricher") and callable(models.pose_enricher):
         pose_raw = _invoke_optional_enricher(models.pose_enricher, image, frame_id)
-    if hasattr(models, "camera_motion_enricher") and callable(models.camera_motion_enricher):
+    if hasattr(models, "camera_motion_enricher") and callable(
+        models.camera_motion_enricher
+    ):
         camera_motion_raw = _invoke_optional_enricher(
             models.camera_motion_enricher, image, frame_id
         )
     if hasattr(models, "quality_enricher") and callable(models.quality_enricher):
-        quality_raw = _invoke_optional_enricher(models.quality_enricher, image, frame_id)
+        quality_raw = _invoke_optional_enricher(
+            models.quality_enricher, image, frame_id
+        )
 
     return {
         "ocr_blocks": _normalize_ocr_blocks(ocr_raw),
@@ -759,9 +767,15 @@ def _build_frame_metadata(
 ) -> dict[str, Any]:
     """Build frame metadata contract for corpus grounding."""
     model_entries = [
-        _extract_model_provenance("detector", getattr(models, "detector", None), threshold=0.0),
-        _extract_model_provenance("segmenter", getattr(models, "segmenter", None), threshold=0.0),
-        _extract_model_provenance("face_detector", getattr(models, "face_detector", None), threshold=0.9),
+        _extract_model_provenance(
+            "detector", getattr(models, "detector", None), threshold=0.0
+        ),
+        _extract_model_provenance(
+            "segmenter", getattr(models, "segmenter", None), threshold=0.0
+        ),
+        _extract_model_provenance(
+            "face_detector", getattr(models, "face_detector", None), threshold=0.9
+        ),
     ]
     for component in (
         "ocr_enricher",
@@ -772,7 +786,9 @@ def _build_frame_metadata(
     ):
         model = getattr(models, component, None)
         if model is not None:
-            model_entries.append(_extract_model_provenance(component, model, threshold=None))
+            model_entries.append(
+                _extract_model_provenance(component, model, threshold=None)
+            )
 
     return {
         "provenance": {
@@ -962,7 +978,10 @@ def _apply_identity_metadata_to_keyframes(
     model_id: str,
 ) -> None:
     """Attach identity metadata to keyframe face outputs in-place."""
-    scene_by_frame_id = {int(frame.get("frame_id", -1)): int(frame.get("scene_id", -1)) for frame in keyframes}
+    scene_by_frame_id = {
+        int(frame.get("frame_id", -1)): int(frame.get("scene_id", -1))
+        for frame in keyframes
+    }
     for frame in frame_results:
         frame_id = int(frame.get("frame_id", -1))
         scene_id = scene_by_frame_id.get(frame_id, frame_id)
@@ -990,7 +1009,9 @@ def _apply_identity_metadata_to_keyframes(
             face["match_confidence"] = max(scene_confidence, video_confidence)
             face["is_identity_ambiguous"] = is_ambiguous
             face["embedding_model_id"] = model_id
-            face["identity_id"] = video_person_id or scene_person_id or str(face.get("identity_id", ""))
+            face["identity_id"] = (
+                video_person_id or scene_person_id or str(face.get("identity_id", ""))
+            )
 
 
 def run_face_identity_pipeline(
@@ -1052,7 +1073,9 @@ def run_face_identity_pipeline(
 
     scene_summary: list[dict[str, Any]] = []
     for scene_id in sorted(clusters_by_scene):
-        for cluster in sorted(clusters_by_scene[scene_id], key=lambda item: item.scene_person_id):
+        for cluster in sorted(
+            clusters_by_scene[scene_id], key=lambda item: item.scene_person_id
+        ):
             video_assignment = scene_to_video.get(cluster.scene_person_id, {})
             scene_summary.append(
                 {
@@ -1141,7 +1164,9 @@ def _face_person_affinity(face_box: list[int], person_box: list[int]) -> float:
     return 0.55 * overlap_ratio + 0.35 * center_inside + 0.10 * iou
 
 
-def _resolve_face_identity(face: dict[str, Any]) -> tuple[str | None, str | None, float]:
+def _resolve_face_identity(
+    face: dict[str, Any],
+) -> tuple[str | None, str | None, float]:
     """Resolve identity tuple ordered by strongest available continuity signal."""
     video_person_id = str(face.get("video_person_id", "")).strip()
     scene_person_id = str(face.get("scene_person_id", "")).strip()
@@ -1181,7 +1206,9 @@ def run_object_tracking_summary(
 ) -> dict[str, Any]:
     """Aggregate per-frame detections into deterministic job-level object tracks."""
     evidence_limit = max(1, int(max_evidence_per_track))
-    ordered_frames = sorted(frame_results, key=lambda item: int(item.get("frame_id", 0)))
+    ordered_frames = sorted(
+        frame_results, key=lambda item: int(item.get("frame_id", 0))
+    )
     track_slots: dict[str, dict[str, Any]] = {}
 
     for frame in ordered_frames:
@@ -1218,7 +1245,9 @@ def run_object_tracking_summary(
             )
             slot["frame_ids"].append(frame_id)
             slot["timestamps"].append(timestamp_sec)
-            slot["confidences"].append(_coerce_float(detection.get("confidence"), default=0.0))
+            slot["confidences"].append(
+                _coerce_float(detection.get("confidence"), default=0.0)
+            )
             slot["detections"].append(detection)
             slot["evidence"].append(
                 {
@@ -1227,7 +1256,9 @@ def run_object_tracking_summary(
                     "detection_index": index,
                     "label": label,
                     "track_id": track_id,
-                    "confidence": _coerce_float(detection.get("confidence"), default=0.0),
+                    "confidence": _coerce_float(
+                        detection.get("confidence"), default=0.0
+                    ),
                     "box": _coerce_int_box(detection.get("box")),
                 }
             )
@@ -1275,7 +1306,9 @@ def run_object_tracking_summary(
                 "temporal_span": {
                     "first_seen": timestamps[0] if timestamps else 0.0,
                     "last_seen": timestamps[-1] if timestamps else 0.0,
-                    "duration_sec": (timestamps[-1] - timestamps[0]) if len(timestamps) >= 2 else 0.0,
+                    "duration_sec": (timestamps[-1] - timestamps[0])
+                    if len(timestamps) >= 2
+                    else 0.0,
                 },
                 "evidence": evidence,
             }
@@ -1327,7 +1360,10 @@ def _collect_person_detections(
         if box is None:
             continue
 
-        track_id = str(detection.get("track_id", "")).strip() or f"person_track_{frame_id}_{index + 1}"
+        track_id = (
+            str(detection.get("track_id", "")).strip()
+            or f"person_track_{frame_id}_{index + 1}"
+        )
         detection["track_id"] = track_id
         person_detections.append((detection, box, track_id))
 
@@ -1398,7 +1434,9 @@ def _apply_identity_vote(
     detection["person_identity_candidate"] = identity_id
 
 
-def _resolve_track_identity(slot: dict[str, Any]) -> tuple[str | None, str | None, float | None, bool]:
+def _resolve_track_identity(
+    slot: dict[str, Any],
+) -> tuple[str | None, str | None, float | None, bool]:
     votes: dict[str, dict[str, Any]] = slot["identity_votes"]
     resolved_identity: str | None = None
     resolved_source: str | None = None
@@ -1426,11 +1464,15 @@ def _resolve_track_identity(slot: dict[str, Any]) -> tuple[str | None, str | Non
         second_identity, second_stats = ranked[1]
         second_count = int(second_stats["count"])
         second_avg_conf = float(second_stats["confidence_sum"]) / max(1, second_count)
-        is_ambiguous = second_count >= top_count and second_avg_conf >= top_avg_conf - 0.05
+        is_ambiguous = (
+            second_count >= top_count and second_avg_conf >= top_avg_conf - 0.05
+        )
         if second_identity == top_identity:
             is_ambiguous = False
 
-    if not is_ambiguous and (dominance >= 0.6 or top_count >= 2 or top_avg_conf >= 0.85):
+    if not is_ambiguous and (
+        dominance >= 0.6 or top_count >= 2 or top_avg_conf >= 0.85
+    ):
         resolved_identity = top_identity
         source_votes = slot["identity_source_votes"]
         resolved_source = sorted(
@@ -1442,7 +1484,9 @@ def _resolve_track_identity(slot: dict[str, Any]) -> tuple[str | None, str | Non
     return resolved_identity, resolved_source, resolved_confidence, is_ambiguous
 
 
-def _normalize_track_slots(track_slots: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _normalize_track_slots(
+    track_slots: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     normalized_tracks: list[dict[str, Any]] = []
     for track_id in sorted(track_slots):
         slot = track_slots[track_id]
@@ -1457,7 +1501,9 @@ def _normalize_track_slots(track_slots: dict[str, dict[str, Any]]) -> list[dict[
             {
                 "track_id": track_id,
                 "frame_ids": sorted({int(frame_id) for frame_id in slot["frame_ids"]}),
-                "timestamps": sorted(float(timestamp) for timestamp in slot["timestamps"]),
+                "timestamps": sorted(
+                    float(timestamp) for timestamp in slot["timestamps"]
+                ),
                 "identity_id": resolved_identity,
                 "identity_source": resolved_source,
                 "identity_confidence": resolved_confidence,
@@ -1475,11 +1521,15 @@ def _normalize_track_slots(track_slots: dict[str, dict[str, Any]]) -> list[dict[
     return normalized_tracks
 
 
-def _build_fused_groups(normalized_tracks: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _build_fused_groups(
+    normalized_tracks: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     fused_groups: dict[str, dict[str, Any]] = {}
     for track in normalized_tracks:
         identity_id = track["identity_id"]
-        group_key = f"identity::{identity_id}" if identity_id else f"track::{track['track_id']}"
+        group_key = (
+            f"identity::{identity_id}" if identity_id else f"track::{track['track_id']}"
+        )
         group = fused_groups.setdefault(
             group_key,
             {
@@ -1498,7 +1548,9 @@ def _build_fused_groups(normalized_tracks: list[dict[str, Any]]) -> dict[str, di
         group["timestamps"].extend(track["timestamps"])
         group["evidence"].extend(track["evidence"])
         if track["identity_confidence"] is not None:
-            group["identity_confidence_values"].append(float(track["identity_confidence"]))
+            group["identity_confidence_values"].append(
+                float(track["identity_confidence"])
+            )
         group["is_identity_ambiguous"] = bool(group["is_identity_ambiguous"]) or bool(
             track["is_identity_ambiguous"]
         )
@@ -1514,18 +1566,26 @@ def _build_fused_tracks(
     track_lookup: dict[str, dict[str, Any]] = {}
     for group_key in sorted(fused_groups):
         group = fused_groups[group_key]
-        object_track_ids = sorted(set(str(track_id) for track_id in group["object_track_ids"]))
+        object_track_ids = sorted(
+            set(str(track_id) for track_id in group["object_track_ids"])
+        )
         frame_ids = sorted(set(int(frame_id) for frame_id in group["frame_ids"]))
         timestamps = sorted(float(timestamp) for timestamp in group["timestamps"])
 
         identity_id = group["identity_id"]
-        stable_key = f"identity::{identity_id}" if identity_id else f"tracks::{','.join(object_track_ids)}"
+        stable_key = (
+            f"identity::{identity_id}"
+            if identity_id
+            else f"tracks::{','.join(object_track_ids)}"
+        )
         person_track_id = _deterministic_person_track_id(job_id, stable_key)
 
         identity_conf_values = group["identity_confidence_values"]
         identity_confidence: float | None = None
         if identity_conf_values:
-            identity_confidence = round(sum(identity_conf_values) / len(identity_conf_values), 4)
+            identity_confidence = round(
+                sum(identity_conf_values) / len(identity_conf_values), 4
+            )
 
         payload = {
             "person_track_id": person_track_id,
@@ -1542,7 +1602,9 @@ def _build_fused_tracks(
             "temporal_span": {
                 "first_seen": timestamps[0] if timestamps else 0.0,
                 "last_seen": timestamps[-1] if timestamps else 0.0,
-                "duration_sec": (timestamps[-1] - timestamps[0]) if len(timestamps) >= 2 else 0.0,
+                "duration_sec": (timestamps[-1] - timestamps[0])
+                if len(timestamps) >= 2
+                else 0.0,
             },
             "evidence": sorted(
                 group["evidence"],
@@ -1598,7 +1660,9 @@ def run_person_tracking_fusion(
 ) -> dict[str, Any]:
     """Fuse person object tracks with face identity evidence into stable video tracks."""
     track_slots: dict[str, dict[str, Any]] = {}
-    ordered_frames = sorted(frame_results, key=lambda item: int(item.get("frame_id", 0)))
+    ordered_frames = sorted(
+        frame_results, key=lambda item: int(item.get("frame_id", 0))
+    )
 
     for frame in ordered_frames:
         frame_id = int(frame.get("frame_id", 0))
@@ -1631,7 +1695,12 @@ def run_person_tracking_fusion(
             if match is None or match[3] < 0.45:
                 continue
 
-            matched_detection, matched_person_box, matched_track_id, association_confidence = match
+            (
+                matched_detection,
+                matched_person_box,
+                matched_track_id,
+                association_confidence,
+            ) = match
             _apply_identity_vote(
                 slot=track_slots[matched_track_id],
                 detection=matched_detection,

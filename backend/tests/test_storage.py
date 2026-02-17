@@ -23,22 +23,35 @@ class TestKeyBuilders:
         assert build_source_video_key("job-123") == "jobs/job-123/input/source.mp4"
 
     def test_build_source_video_key_with_custom_extension(self):
-        assert build_source_video_key("job-123", "mov") == "jobs/job-123/input/source.mov"
+        assert (
+            build_source_video_key("job-123", "mov") == "jobs/job-123/input/source.mov"
+        )
 
     def test_build_source_video_key_normalizes_extension(self):
-        assert build_source_video_key("job-123", ".MP4") == "jobs/job-123/input/source.mp4"
+        assert (
+            build_source_video_key("job-123", ".MP4") == "jobs/job-123/input/source.mp4"
+        )
 
     def test_build_frame_key(self):
-        assert build_frame_key("job-123", "seg", 42) == "jobs/job-123/frames/seg/frame_42.jpg"
+        assert (
+            build_frame_key("job-123", "seg", 42)
+            == "jobs/job-123/frames/seg/frame_42.jpg"
+        )
 
     def test_build_analysis_json_key(self):
-        assert build_analysis_key("job-123", "json", 42) == "jobs/job-123/analysis/json/frame_42.json"
+        assert (
+            build_analysis_key("job-123", "json", 42)
+            == "jobs/job-123/analysis/json/frame_42.json"
+        )
 
     def test_build_r2_endpoint(self):
         assert build_r2_endpoint("abc") == "https://abc.r2.cloudflarestorage.com"
 
     def test_build_scene_packet_key(self):
-        assert build_scene_key("job-123", "packet", 2) == "jobs/job-123/scene/packets/scene_2.json"
+        assert (
+            build_scene_key("job-123", "packet", 2)
+            == "jobs/job-123/scene/packets/scene_2.json"
+        )
 
     def test_build_scene_narrative_key(self):
         assert (
@@ -47,10 +60,16 @@ class TestKeyBuilders:
         )
 
     def test_build_synopsis_key(self):
-        assert build_summary_key("job-123", "synopsis") == "jobs/job-123/summary/synopsis.json"
+        assert (
+            build_summary_key("job-123", "synopsis")
+            == "jobs/job-123/summary/synopsis.json"
+        )
 
     def test_build_graph_corpus_key(self):
-        assert build_corpus_key("job-123", "graph") == "jobs/job-123/corpus/graph/bundle.json"
+        assert (
+            build_corpus_key("job-123", "graph")
+            == "jobs/job-123/corpus/graph/bundle.json"
+        )
 
     def test_build_retrieval_corpus_key_with_filename(self):
         assert (
@@ -97,7 +116,9 @@ class TestR2MediaStore:
         mock_client = MagicMock()
         store = self._make_store(mock_client)
 
-        object_key = store.upload_source_video("job-7", "/tmp/video.mov", "video/quicktime", source_extension="mov")
+        object_key = store.upload_source_video(
+            "job-7", "/tmp/video.mov", "video/quicktime", source_extension="mov"
+        )
 
         assert object_key == "jobs/job-7/input/source.mov"
         mock_client.upload_file.assert_called_once_with(
@@ -125,7 +146,9 @@ class TestR2MediaStore:
         mock_client = MagicMock()
         store = self._make_store(mock_client)
 
-        object_key = store.upload_analysis_artifact("job-9", "json", 3, b'{"frame_id": 3}')
+        object_key = store.upload_analysis_artifact(
+            "job-9", "json", 3, b'{"frame_id": 3}'
+        )
 
         assert object_key == "jobs/job-9/analysis/json/frame_3.json"
         mock_client.put_object.assert_called_once_with(
@@ -137,15 +160,22 @@ class TestR2MediaStore:
 
     def test_sign_read_url_uses_ttl(self):
         mock_client = MagicMock()
-        mock_client.generate_presigned_url.return_value = "https://signed.example/file.jpg"
+        mock_client.generate_presigned_url.return_value = (
+            "https://signed.example/file.jpg"
+        )
         store = self._make_store(mock_client)
 
-        signed = store.sign_read_url("jobs/job-1/frames/original/frame_0.jpg", expires_in=600)
+        signed = store.sign_read_url(
+            "jobs/job-1/frames/original/frame_0.jpg", expires_in=600
+        )
 
         assert signed == "https://signed.example/file.jpg"
         mock_client.generate_presigned_url.assert_called_once_with(
             "get_object",
-            Params={"Bucket": "bucket-1", "Key": "jobs/job-1/frames/original/frame_0.jpg"},
+            Params={
+                "Bucket": "bucket-1",
+                "Key": "jobs/job-1/frames/original/frame_0.jpg",
+            },
             ExpiresIn=600,
         )
 
@@ -153,7 +183,9 @@ class TestR2MediaStore:
         mock_client = MagicMock()
         store = self._make_store(mock_client)
 
-        object_key = store.upload_scene_artifact("job-9", "packet", 3, b'{"scene_id":3}')
+        object_key = store.upload_scene_artifact(
+            "job-9", "packet", 3, b'{"scene_id":3}'
+        )
 
         assert object_key == "jobs/job-9/scene/packets/scene_3.json"
         mock_client.put_object.assert_called_once_with(
@@ -167,7 +199,9 @@ class TestR2MediaStore:
         mock_client = MagicMock()
         store = self._make_store(mock_client)
 
-        object_key = store.upload_scene_artifact("job-9", "narrative", 3, b'{"narrative":"ok"}')
+        object_key = store.upload_scene_artifact(
+            "job-9", "narrative", 3, b'{"narrative":"ok"}'
+        )
 
         assert object_key == "jobs/job-9/scene/narratives/scene_3.json"
         mock_client.put_object.assert_called_once_with(
@@ -181,7 +215,9 @@ class TestR2MediaStore:
         mock_client = MagicMock()
         store = self._make_store(mock_client)
 
-        object_key = store.upload_summary_artifact("job-9", "synopsis", b'{"synopsis":"ok"}')
+        object_key = store.upload_summary_artifact(
+            "job-9", "synopsis", b'{"synopsis":"ok"}'
+        )
 
         assert object_key == "jobs/job-9/summary/synopsis.json"
         mock_client.put_object.assert_called_once_with(
@@ -195,13 +231,13 @@ class TestR2MediaStore:
         mock_client = MagicMock()
         store = self._make_store(mock_client)
 
-        object_key = store.upload_corpus_artifact("job-9", "graph", b"{\"nodes\":[]}")
+        object_key = store.upload_corpus_artifact("job-9", "graph", b'{"nodes":[]}')
 
         assert object_key == "jobs/job-9/corpus/graph/bundle.json"
         mock_client.put_object.assert_called_once_with(
             Bucket="bucket-1",
             Key="jobs/job-9/corpus/graph/bundle.json",
-            Body=b"{\"nodes\":[]}",
+            Body=b'{"nodes":[]}',
             ContentType="application/json",
         )
 

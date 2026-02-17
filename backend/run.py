@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the video analysis API server."""
+
 import uvicorn
 
 if __name__ == "__main__":

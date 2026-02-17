@@ -17,7 +17,7 @@ from app.scene_task_queue import (
 
 def _settings(**overrides):
     defaults = {
-        "enable_scene_understanding_pipeline": True,
+        "kg_pipeline_enabled": True,
         "enable_corpus_pipeline": False,
         "enable_corpus_ingest": False,
         "scene_ai_lease_timeout_seconds": 30,
@@ -26,10 +26,7 @@ def _settings(**overrides):
         "scene_ai_retry_backoff_max_seconds": 60,
         "scene_ai_worker_poll_interval_seconds": 1,
         "scene_ai_failure_policy": "fail_job",
-        "scene_ai_prompt_version": "v1",
-        "scene_ai_runtime_version": "v1",
         "scene_model_id": "gemini-3-flash-preview",
-        "synopsis_model_id": "gemini-3-flash-preview",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -45,14 +42,14 @@ def _task_payload(job_id: str, *, video_object_tracks: dict | None = None) -> di
     ).to_payload()
 
 
-def test_worker_completes_task_and_persists_provenance():
+def test_worker_completes_task_with_kg_enrichment():
     queue = InMemorySceneTaskQueue()
     settings = _settings()
     job_id = jobs.create_job()
     enqueued = queue.enqueue_task(
         job_id=job_id,
         payload=_task_payload(job_id),
-        idempotency_key=f"{job_id}:scene_understanding:v1",
+        idempotency_key=f"{job_id}:scene_worker:v1",
         max_attempts=3,
     )
     media_store = MagicMock(name="media_store")
@@ -63,30 +60,19 @@ def test_worker_completes_task_and_persists_provenance():
         media_store_factory=lambda: media_store,
     )
 
-    with patch(
-        "app.scene_ai_worker.video_understanding.run_scene_understanding_pipeline",
-        return_value={
-            "scene_narratives": [
-                {
-                    "scene_id": 0,
-                    "start_sec": 0.0,
-                    "end_sec": 1.0,
-                    "narrative_paragraph": "Scene summary.",
-                    "key_moments": ["moment"],
-                    "artifacts": {
-                        "packet": f"jobs/{job_id}/scene/packets/scene_0.json",
-                        "narrative": f"jobs/{job_id}/scene/narratives/scene_0.json",
-                    },
-                    "trace": {"stage": "scene_narrative"},
-                }
-            ],
-            "video_synopsis": {
-                "synopsis": "Video summary.",
-                "artifact": f"jobs/{job_id}/summary/synopsis.json",
-                "model": "gemini-3-flash-preview",
-                "trace": {"stage": "video_synopsis"},
-            },
-        },
+    fake_kg_result = {
+        "scene_id": 0,
+        "scene_graph_delta": {"entities": [], "relations": [], "events": []},
+        "validation_errors": [],
+        "retry_count": 0,
+    }
+
+    with (
+        patch(
+            "app.scene_ai_worker.run_kg_workflow",
+            return_value=fake_kg_result,
+        ),
+        patch.object(SceneAIWorker, "_get_neo4j_writer", return_value=None),
     ):
         processed = worker.process_next_task()
 
@@ -94,9 +80,43 @@ def test_worker_completes_task_and_persists_provenance():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    worker_trace = job["result"]["scene_narratives"][0]["trace"]["worker"]
-    assert worker_trace["worker_id"] == "worker-test"
-    assert worker_trace["attempt"] == 1
+    result = job["result"]
+    assert result["kg_results"] == [fake_kg_result]
+    assert result["corpus"] is None
+    assert "scene_narratives" not in result
+    assert "video_synopsis" not in result
+    task = queue.get_task(task_id=enqueued.task_id)
+    assert task is not None
+    assert task.status == QUEUE_STATUS_SUCCEEDED
+
+
+def test_worker_completes_with_kg_disabled():
+    queue = InMemorySceneTaskQueue()
+    settings = _settings(kg_pipeline_enabled=False)
+    job_id = jobs.create_job()
+    enqueued = queue.enqueue_task(
+        job_id=job_id,
+        payload=_task_payload(job_id),
+        idempotency_key=f"{job_id}:scene_worker:v1",
+        max_attempts=1,
+    )
+    media_store = MagicMock(name="media_store")
+    worker = SceneAIWorker.from_settings(
+        settings=settings,
+        queue=queue,
+        worker_id="worker-no-kg",
+        media_store_factory=lambda: media_store,
+    )
+
+    processed = worker.process_next_task()
+
+    assert processed is True
+    job = jobs.get_job(job_id)
+    assert job is not None
+    assert job["status"] == "completed"
+    result = job["result"]
+    assert result["kg_results"] == []
+    assert result["corpus"] is None
     task = queue.get_task(task_id=enqueued.task_id)
     assert task is not None
     assert task.status == QUEUE_STATUS_SUCCEEDED
@@ -104,7 +124,7 @@ def test_worker_completes_task_and_persists_provenance():
 
 def test_worker_payload_round_trip_preserves_video_object_tracks():
     queue = InMemorySceneTaskQueue()
-    settings = _settings()
+    settings = _settings(kg_pipeline_enabled=False)
     job_id = jobs.create_job()
     object_tracks = {
         "enabled": True,
@@ -114,7 +134,7 @@ def test_worker_payload_round_trip_preserves_video_object_tracks():
     queue.enqueue_task(
         job_id=job_id,
         payload=_task_payload(job_id, video_object_tracks=object_tracks),
-        idempotency_key=f"{job_id}:scene_understanding:v1",
+        idempotency_key=f"{job_id}:scene_worker:v1",
         max_attempts=1,
     )
     worker = SceneAIWorker.from_settings(
@@ -124,11 +144,7 @@ def test_worker_payload_round_trip_preserves_video_object_tracks():
         media_store_factory=lambda: MagicMock(name="media_store"),
     )
 
-    with patch(
-        "app.scene_ai_worker.video_understanding.run_scene_understanding_pipeline",
-        return_value={"scene_narratives": [], "video_synopsis": None},
-    ):
-        processed = worker.process_next_task()
+    processed = worker.process_next_task()
 
     assert processed is True
     job = jobs.get_job(job_id)
@@ -144,7 +160,7 @@ def test_worker_retries_then_succeeds_after_transient_failure():
     enqueued = queue.enqueue_task(
         job_id=job_id,
         payload=_task_payload(job_id),
-        idempotency_key=f"{job_id}:scene_understanding:v1",
+        idempotency_key=f"{job_id}:scene_worker:v1",
         max_attempts=3,
     )
     worker = SceneAIWorker.from_settings(
@@ -154,12 +170,25 @@ def test_worker_retries_then_succeeds_after_transient_failure():
         media_store_factory=lambda: MagicMock(name="media_store"),
     )
 
-    with patch(
-        "app.scene_ai_worker.video_understanding.run_scene_understanding_pipeline",
-        side_effect=[
-            RuntimeError("temporary provider outage"),
-            {"scene_narratives": [], "video_synopsis": None},
-        ],
+    fake_kg_result = {
+        "scene_id": 0,
+        "scene_graph_delta": {"entities": [], "relations": [], "events": []},
+        "validation_errors": [],
+        "retry_count": 0,
+    }
+
+    # First attempt: _get_neo4j_writer raises, causing a retryable error.
+    # Second attempt: succeeds normally.
+    with (
+        patch(
+            "app.scene_ai_worker.run_kg_workflow",
+            return_value=fake_kg_result,
+        ),
+        patch.object(
+            SceneAIWorker,
+            "_get_neo4j_writer",
+            side_effect=[RuntimeError("temporary provider outage"), None],
+        ),
     ):
         first = worker.process_next_task()
         assert first is True
@@ -192,7 +221,7 @@ def test_worker_marks_dead_letter_on_non_retryable_payload_error():
             "frame_results": [],
             "source_key": "",
         },
-        idempotency_key=f"{job_id}:scene_understanding:v1",
+        idempotency_key=f"{job_id}:scene_worker:v1",
         max_attempts=3,
     )
     worker = SceneAIWorker.from_settings(
@@ -213,7 +242,7 @@ def test_worker_marks_dead_letter_on_non_retryable_payload_error():
     assert task.status == QUEUE_STATUS_DEAD_LETTER
 
 
-def test_worker_fallback_policy_completes_with_empty_scene_outputs():
+def test_worker_fallback_policy_completes_with_empty_kg_results():
     queue = InMemorySceneTaskQueue()
     settings = _settings(scene_ai_failure_policy="fallback_empty")
     job_id = jobs.create_job()
@@ -225,7 +254,7 @@ def test_worker_fallback_policy_completes_with_empty_scene_outputs():
             "frame_results": [{"frame_id": 0, "timestamp": "00:00:01.000"}],
             "source_key": "",
         },
-        idempotency_key=f"{job_id}:scene_understanding:v1",
+        idempotency_key=f"{job_id}:scene_worker:v1",
         max_attempts=1,
     )
     worker = SceneAIWorker.from_settings(
@@ -241,8 +270,11 @@ def test_worker_fallback_policy_completes_with_empty_scene_outputs():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert job["result"]["scene_narratives"] == []
-    assert job["result"]["video_synopsis"] is None
+    result = job["result"]
+    assert result["kg_results"] == []
+    assert result["corpus"] is None
+    assert "scene_narratives" not in result
+    assert "video_synopsis" not in result
     task = queue.get_task(task_id=enqueued.task_id)
     assert task is not None
     assert task.status == QUEUE_STATUS_DEAD_LETTER

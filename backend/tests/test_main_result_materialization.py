@@ -30,8 +30,6 @@ def test_materialize_signed_result_urls_normalizes_frame_fields():
                 "metadata": None,
             }
         ],
-        "scene_narratives": [],
-        "video_synopsis": None,
         "corpus": None,
     }
 
@@ -48,34 +46,10 @@ def test_materialize_signed_result_urls_normalizes_frame_fields():
     )
 
 
-def test_materialize_signed_result_urls_signs_nested_artifacts():
+def test_materialize_signed_result_urls_signs_corpus_artifacts():
     payload = {
         "job_id": "job-8",
         "frames": [],
-        "scene_narratives": [
-            {
-                "scene_id": 0,
-                "start_sec": 0.0,
-                "end_sec": 2.0,
-                "narrative_paragraph": "A short summary.",
-                "key_moments": [],
-                "artifacts": {
-                    "packet": "jobs/job-8/scene/packets/scene_0.json",
-                    "narrative": "jobs/job-8/scene/narratives/scene_0.json",
-                },
-                "corpus": {
-                    "artifacts": {
-                        "graph_bundle": "jobs/job-8/corpus/graph/scene_0.json",
-                        "retrieval_bundle": "jobs/job-8/corpus/rag/scene_0.json",
-                    }
-                },
-            }
-        ],
-        "video_synopsis": {
-            "synopsis": "full summary",
-            "artifact": "jobs/job-8/summary/synopsis.json",
-            "model": "gemini",
-        },
         "corpus": {
             "artifacts": {
                 "retrieval_bundle": "jobs/job-8/corpus/rag/bundle.json",
@@ -85,16 +59,12 @@ def test_materialize_signed_result_urls_signs_nested_artifacts():
 
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
-    scene = result["scene_narratives"][0]
-    assert scene["artifacts"]["packet"].startswith("https://signed.example/jobs/")
-    assert scene["artifacts"]["narrative"].startswith("https://signed.example/jobs/")
-    assert scene["corpus"]["artifacts"]["graph_bundle"].startswith("https://signed.example/jobs/")
-    assert scene["corpus"]["artifacts"]["retrieval_bundle"].startswith("https://signed.example/jobs/")
-    assert result["video_synopsis"]["artifact"].startswith("https://signed.example/jobs/")
-    assert result["corpus"]["artifacts"]["retrieval_bundle"].startswith("https://signed.example/jobs/")
+    assert result["corpus"]["artifacts"]["retrieval_bundle"].startswith(
+        "https://signed.example/jobs/"
+    )
 
 
-def test_materialize_signed_result_urls_defaults_scene_fields_when_missing():
+def test_materialize_signed_result_urls_defaults_when_missing():
     payload = {
         "job_id": "job-9",
         "frames": [],
@@ -103,8 +73,6 @@ def test_materialize_signed_result_urls_defaults_scene_fields_when_missing():
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
     assert result["frames"] == []
-    assert result["scene_narratives"] == []
-    assert result["video_synopsis"] is None
     assert result["corpus"] is None
 
 
@@ -114,7 +82,10 @@ def test_materialize_signed_result_urls_preserves_video_face_identity_summary():
         "frames": [],
         "video_face_identities": {
             "video_identities": [
-                {"video_person_id": "video_person_1", "scene_person_ids": ["scene_0_person_1"]}
+                {
+                    "video_person_id": "video_person_1",
+                    "scene_person_ids": ["scene_0_person_1"],
+                }
             ]
         },
     }
@@ -155,18 +126,14 @@ def test_materialize_signed_result_urls_preserves_video_object_tracks():
     assert result["video_object_tracks"] == payload["video_object_tracks"]
 
 
-def test_materialize_signed_result_urls_ignores_invalid_scene_and_frame_items():
+def test_materialize_signed_result_urls_ignores_invalid_frame_items():
     payload = {
         "job_id": "job-10",
         "frames": ["invalid-frame"],
-        "scene_narratives": ["invalid-scene"],
-        "video_synopsis": "invalid",
         "corpus": "invalid",
     }
 
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
     assert result["frames"] == []
-    assert result["scene_narratives"] == []
-    assert result["video_synopsis"] is None
     assert result["corpus"] is None

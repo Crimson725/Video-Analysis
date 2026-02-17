@@ -31,14 +31,20 @@ def _sample_frame_payload(job_id: str, frame_id: int) -> dict:
 
 
 class TestR2AnalysisArtifactsIntegration:
-    def test_write_and_read_json_artifacts(self, r2_store, r2_test_job_id, r2_cleanup_keys):
+    def test_write_and_read_json_artifacts(
+        self, r2_store, r2_test_job_id, r2_cleanup_keys
+    ):
         payload = _sample_frame_payload(r2_test_job_id, frame_id=0)
         json_bytes = json.dumps(payload).encode("utf-8")
         packet_bytes = b'{"scene":{"scene_id":0}}'
 
-        json_key = r2_store.upload_analysis_artifact(r2_test_job_id, "json", 0, json_bytes)
+        json_key = r2_store.upload_analysis_artifact(
+            r2_test_job_id, "json", 0, json_bytes
+        )
         r2_cleanup_keys.append(json_key)
-        packet_key = r2_store.upload_scene_artifact(r2_test_job_id, "packet", 0, packet_bytes)
+        packet_key = r2_store.upload_scene_artifact(
+            r2_test_job_id, "packet", 0, packet_bytes
+        )
         r2_cleanup_keys.append(packet_key)
 
         read_json = r2_store.read_object(json_key)
@@ -55,7 +61,9 @@ class TestR2AnalysisArtifactsIntegration:
         json_key = ""
         packet_key = ""
         try:
-            json_key = r2_store.upload_analysis_artifact(r2_test_job_id, "json", 1, json_bytes)
+            json_key = r2_store.upload_analysis_artifact(
+                r2_test_job_id, "json", 1, json_bytes
+            )
             created_keys.append(json_key)
             packet_key = r2_store.upload_scene_artifact(
                 r2_test_job_id,
