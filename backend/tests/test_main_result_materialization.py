@@ -30,7 +30,6 @@ def test_materialize_signed_result_urls_normalizes_frame_fields():
                 "metadata": None,
             }
         ],
-        "corpus": None,
     }
 
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
@@ -46,22 +45,19 @@ def test_materialize_signed_result_urls_normalizes_frame_fields():
     )
 
 
-def test_materialize_signed_result_urls_signs_corpus_artifacts():
+def test_materialize_signed_result_urls_ignores_non_cv_fields():
     payload = {
         "job_id": "job-8",
         "frames": [],
-        "corpus": {
-            "artifacts": {
-                "retrieval_bundle": "jobs/job-8/corpus/rag/bundle.json",
-            }
-        },
+        "corpus": {"artifacts": {"retrieval_bundle": "jobs/job-8/corpus/rag/bundle.json"}},
+        "video_face_identities": {"video_identities": []},
+        "video_person_tracks": {"tracks": []},
+        "video_object_tracks": {"tracks": []},
     }
 
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
-    assert result["corpus"]["artifacts"]["retrieval_bundle"].startswith(
-        "https://signed.example/jobs/"
-    )
+    assert result == {"job_id": "job-8", "frames": []}
 
 
 def test_materialize_signed_result_urls_defaults_when_missing():
@@ -73,57 +69,6 @@ def test_materialize_signed_result_urls_defaults_when_missing():
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
     assert result["frames"] == []
-    assert result["corpus"] is None
-
-
-def test_materialize_signed_result_urls_preserves_video_face_identity_summary():
-    payload = {
-        "job_id": "job-11",
-        "frames": [],
-        "video_face_identities": {
-            "video_identities": [
-                {
-                    "video_person_id": "video_person_1",
-                    "scene_person_ids": ["scene_0_person_1"],
-                }
-            ]
-        },
-    }
-
-    result = _materialize_signed_result_urls(payload, _StubMediaStore())
-
-    assert result["video_face_identities"] == payload["video_face_identities"]
-
-
-def test_materialize_signed_result_urls_preserves_video_person_tracks():
-    payload = {
-        "job_id": "job-12",
-        "frames": [],
-        "video_person_tracks": {
-            "method": "object_face_fusion_v1",
-            "tracks": [{"person_track_id": "person_track_abc"}],
-        },
-    }
-
-    result = _materialize_signed_result_urls(payload, _StubMediaStore())
-
-    assert result["video_person_tracks"] == payload["video_person_tracks"]
-
-
-def test_materialize_signed_result_urls_preserves_video_object_tracks():
-    payload = {
-        "job_id": "job-13",
-        "frames": [],
-        "video_object_tracks": {
-            "enabled": True,
-            "method": "object_tracking_v1",
-            "tracks": [{"object_track_id": "object_track_abc"}],
-        },
-    }
-
-    result = _materialize_signed_result_urls(payload, _StubMediaStore())
-
-    assert result["video_object_tracks"] == payload["video_object_tracks"]
 
 
 def test_materialize_signed_result_urls_ignores_invalid_frame_items():
@@ -136,4 +81,3 @@ def test_materialize_signed_result_urls_ignores_invalid_frame_items():
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
     assert result["frames"] == []
-    assert result["corpus"] is None

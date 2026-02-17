@@ -338,14 +338,10 @@ class VideoObjectTracksResult(BaseModel):
 
 
 class JobResult(BaseModel):
-    """Full analysis result for a job."""
+    """CV analysis result for a job."""
 
     job_id: str
     frames: list[FrameResult]
-    corpus: JobCorpusResult | None = None
-    video_face_identities: dict[str, Any] | None = None
-    video_person_tracks: dict[str, Any] | None = None
-    video_object_tracks: VideoObjectTracksResult | None = None
 
 
 class JobStatus(BaseModel):

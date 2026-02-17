@@ -1,6 +1,6 @@
 # Video Analysis Backend
 
-Python FastAPI backend for video analysis (scene detection, segmentation, object detection, face recognition, and face-identity fusion).
+Python FastAPI backend for video analysis (scene detection, segmentation, object detection, and face recognition).
 
 ## Setup
 
@@ -38,12 +38,9 @@ uv run python run.py
 1. source upload to R2 and source verification
 2. scene detection + keyframe extraction
 3. per-keyframe CV analysis (segmentation, detection, face, enrichment)
-4. video-level tracking outputs:
-   - object tracking summary (`video_object_tracks`)
-   - optional face identity + person fusion (`video_face_identities`, `video_person_tracks`)
-5. artifact verification and job completion
+4. artifact verification and job completion
 
-The runtime pipeline stops after CV/tracking outputs. It does not dispatch queue worker tasks and does not build corpus artifacts.
+The runtime pipeline stops after CV outputs. It does not dispatch queue worker tasks and does not build corpus artifacts.
 
 ## Cloudflare R2 Configuration
 
@@ -99,40 +96,6 @@ The ML stack is **PyTorch-first** for in-repo pipeline execution and does not re
 - **facenet-pytorch** (MTCNN) — face detection
 - **scenedetect** — video scene boundary detection
 - **opencv-python** — frame I/O and drawing
-
-## Face Identity
-
-Continuous face identity runs on a PyTorch-only EdgeFace path and is enabled by default.
-
-Default behavior (can be set explicitly):
-
-```bash
-ENABLE_FACE_IDENTITY_PIPELINE=true
-FACE_IDENTITY_MODEL_ID=edgeface_s_gamma_05
-FACE_IDENTITY_BACKEND=cpu
-FACE_IDENTITY_WEIGHTS_PATH=/absolute/path/to/edgeface_weights.pt
-```
-
-Supported profile values:
-
-- `edgeface_s_gamma_05` (default)
-- `edgeface_xs_gamma_06` (lower-cost alternative)
-
-Legacy alias `edgeface-arcface-torch` is accepted and normalized to `edgeface_s_gamma_05`.
-
-Optional tuning defaults (already applied when unset):
-
-```bash
-FACE_IDENTITY_SCENE_SIMILARITY_THRESHOLD=0.68
-FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD=0.74
-FACE_IDENTITY_AMBIGUITY_MARGIN=0.03
-```
-
-Rollback controls:
-
-- Disable face identity with `ENABLE_FACE_IDENTITY_PIPELINE=false`.
-- Swap profile via `FACE_IDENTITY_MODEL_ID` and/or weights via `FACE_IDENTITY_WEIGHTS_PATH`.
-- Force backend via `FACE_IDENTITY_BACKEND=cuda|mps|cpu`.
 
 ## GPU
 

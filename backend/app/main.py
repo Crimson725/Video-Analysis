@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 
 from app import analysis, cleanup, jobs, scene
 from app.config import Settings
-from app.models import ModelLoader, edgeface_runtime_note
+from app.models import ModelLoader
 from app.schemas import JobResult, JobStatus
 from app.storage import MediaStore, MediaStoreConfigError, MediaStoreError, R2MediaStore
 
@@ -51,20 +51,6 @@ def _startup_validate_settings() -> None:
             "Video processing and signed result URLs will fail until configured.",
             ", ".join(missing),
         )
-    if bool(getattr(SETTINGS, "enable_face_identity_pipeline", False)):
-        missing_face_identity = SETTINGS.missing_face_identity_fields()
-        if missing_face_identity:
-            logger.warning(
-                "Face identity pipeline enabled with missing settings: %s. "
-                "Continuous identity tracking may fail at runtime.",
-                ", ".join(missing_face_identity),
-            )
-        logger.info(
-            "Face identity runtime configured model_profile=%s backend_preference=%s",
-            SETTINGS.face_identity_model_id,
-            SETTINGS.face_identity_backend,
-        )
-        logger.info("%s", edgeface_runtime_note())
 
 
 def _extract_source_extension(filename: str | None) -> str:
@@ -217,42 +203,13 @@ def _materialize_frame_result(
     }
 
 
-def _materialize_corpus_payload(
-    raw_corpus: Any, media_store: MediaStore
-) -> dict[str, Any] | None:
-    """Materialize optional corpus payload artifact URLs."""
-    if not isinstance(raw_corpus, dict):
-        return None
-    raw_corpus_artifacts = raw_corpus.get("artifacts", {})
-    materialized: dict[str, Any] = {
-        "retrieval": raw_corpus.get("retrieval"),
-        "artifacts": {
-            "retrieval_bundle": _to_signed_url_if_needed(
-                raw_corpus_artifacts.get("retrieval_bundle"),
-                media_store,
-            ),
-        },
-    }
-    if "ingest" in raw_corpus:
-        materialized["ingest"] = raw_corpus.get("ingest")
-    return materialized
-
-
 def _materialize_signed_result_urls(
     result_payload: dict[str, Any], media_store: MediaStore
 ) -> dict[str, Any]:
-    """Convert stored object keys to signed URLs for API responses."""
+    """Convert stored CV artifact keys to signed URLs for API responses."""
     payload: dict[str, Any] = {
         "job_id": result_payload.get("job_id"),
         "frames": [],
-        "corpus": None,
-        "video_face_identities": result_payload.get("video_face_identities"),
-        "video_person_tracks": result_payload.get("video_person_tracks"),
-        "video_object_tracks": (
-            result_payload.get("video_object_tracks")
-            if isinstance(result_payload.get("video_object_tracks"), dict)
-            else None
-        ),
     }
     raw_frames = result_payload.get("frames", [])
     if not isinstance(raw_frames, list):
@@ -268,10 +225,6 @@ def _materialize_signed_result_urls(
                 media_store=media_store,
             )
         )
-
-    payload["corpus"] = _materialize_corpus_payload(
-        result_payload.get("corpus"), media_store
-    )
     return payload
 
 
@@ -451,43 +404,9 @@ def process_video(
             )
             frame_results.append(result)
 
-        video_face_identities: dict[str, Any] | None = None
-        video_person_tracks: dict[str, Any] | None = None
-        video_object_tracks: dict[str, Any] | None = (
-            analysis.run_object_tracking_summary(
-                frame_results=frame_results,
-                job_id=job_id,
-            )
-        )
-        if bool(getattr(SETTINGS, "enable_face_identity_pipeline", False)):
-            tracking_frames = scene.extract_tracking_frames(
-                video_path,
-                scenes,
-                sample_fps=int(getattr(SETTINGS, "face_identity_sample_fps", 4)),
-                max_samples_per_scene=int(
-                    getattr(SETTINGS, "face_identity_max_samples_per_scene", 120)
-                ),
-            )
-            video_face_identities = analysis.run_face_identity_pipeline(
-                keyframes=frames,
-                frame_results=frame_results,
-                tracking_frames=tracking_frames,
-                models=models,
-                settings=SETTINGS,
-                job_id=job_id,
-            )
-            video_person_tracks = analysis.run_person_tracking_fusion(
-                frame_results=frame_results,
-                job_id=job_id,
-            )
-
         payload = {
             "job_id": job_id,
             "frames": frame_results,
-            "corpus": None,
-            "video_face_identities": video_face_identities,
-            "video_person_tracks": video_person_tracks,
-            "video_object_tracks": video_object_tracks,
         }
         required_keys = _collect_required_artifact_keys(job_id, payload, source_key)
         _verify_required_artifacts(media_store, job_id, required_keys)

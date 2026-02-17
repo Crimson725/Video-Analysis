@@ -1,6 +1,5 @@
-"""Tests for feature-flagged face identity flow in app.main.process_video."""
+"""Tests for CV-only processing flow in app.main.process_video."""
 
-import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -47,14 +46,8 @@ def _frame_payload(job_id: str) -> dict:
     }
 
 
-def test_process_video_runs_face_identity_pipeline_when_enabled():
+def test_process_video_skips_post_cv_pipelines_even_when_enabled():
     job_id = jobs.create_job()
-    summary = {
-        "enabled": True,
-        "backend": "cpu",
-        "scene_identities": [{"scene_person_id": "scene_0_person_1"}],
-        "video_identities": [{"video_person_id": "video_person_1"}],
-    }
 
     with (
         patch("app.main.get_media_store") as mock_store_factory,
@@ -63,36 +56,18 @@ def test_process_video_runs_face_identity_pipeline_when_enabled():
         patch(
             "app.main.scene.extract_keyframes",
             return_value=[
-                {
-                    "frame_id": 0,
-                    "scene_id": 0,
-                    "timestamp": "00:00:00.500",
-                    "image": object(),
-                }
+                {"frame_id": 0, "scene_id": 0, "timestamp": "00:00:00.500", "image": object()}
             ],
         ),
         patch("app.main.scene.save_original_frames"),
         patch("app.main.analysis.analyze_frame", return_value=_frame_payload(job_id)),
-        patch(
-            "app.main.scene.extract_tracking_frames",
-            return_value=[
-                {
-                    "frame_id": 0,
-                    "scene_id": 0,
-                    "sample_index": 0,
-                    "timestamp": "00:00:00.000",
-                    "image": object(),
-                }
-            ],
-        ) as mock_extract_tracking_frames,
-        patch(
-            "app.main.analysis.run_face_identity_pipeline", return_value=summary
-        ) as mock_identity,
+        patch("app.main.analysis.run_object_tracking_summary") as mock_object_summary,
+        patch("app.main.scene.extract_tracking_frames") as mock_extract_tracking_frames,
+        patch("app.main.analysis.run_face_identity_pipeline") as mock_face_identity,
+        patch("app.main.analysis.run_person_tracking_fusion") as mock_person_fusion,
         patch(
             "app.main.SETTINGS",
             SimpleNamespace(
-                enable_corpus_pipeline=False,
-                enable_corpus_ingest=False,
                 cleanup_local_video_after_upload_default=True,
                 r2_url_ttl_seconds=3600,
                 enable_face_identity_pipeline=True,
@@ -114,17 +89,14 @@ def test_process_video_runs_face_identity_pipeline_when_enabled():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert job["result"]["video_face_identities"] == summary
-    mock_extract_tracking_frames.assert_called_once_with(
-        "/tmp/nonexistent.mp4",
-        [(0.0, 1.0)],
-        sample_fps=2,
-        max_samples_per_scene=10,
-    )
-    mock_identity.assert_called_once()
+    assert set(job["result"].keys()) == {"job_id", "frames"}
+    mock_object_summary.assert_not_called()
+    mock_extract_tracking_frames.assert_not_called()
+    mock_face_identity.assert_not_called()
+    mock_person_fusion.assert_not_called()
 
 
-def test_process_video_skips_face_identity_pipeline_when_disabled():
+def test_process_video_result_contains_only_cv_outputs():
     job_id = jobs.create_job()
 
     with (
@@ -134,18 +106,14 @@ def test_process_video_skips_face_identity_pipeline_when_disabled():
         patch(
             "app.main.scene.extract_keyframes",
             return_value=[
-                {"frame_id": 0, "timestamp": "00:00:00.500", "image": object()}
+                {"frame_id": 0, "scene_id": 0, "timestamp": "00:00:00.500", "image": object()}
             ],
         ),
         patch("app.main.scene.save_original_frames"),
         patch("app.main.analysis.analyze_frame", return_value=_frame_payload(job_id)),
-        patch("app.main.scene.extract_tracking_frames") as mock_extract_tracking_frames,
-        patch("app.main.analysis.run_face_identity_pipeline") as mock_identity,
         patch(
             "app.main.SETTINGS",
             SimpleNamespace(
-                enable_corpus_pipeline=False,
-                enable_corpus_ingest=False,
                 cleanup_local_video_after_upload_default=True,
                 r2_url_ttl_seconds=3600,
                 enable_face_identity_pipeline=False,
@@ -165,34 +133,5 @@ def test_process_video_skips_face_identity_pipeline_when_disabled():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert job["result"]["video_face_identities"] is None
-    mock_extract_tracking_frames.assert_not_called()
-    mock_identity.assert_not_called()
-
-
-def test_startup_validation_logs_face_identity_runtime_when_enabled(caplog):
-    with (
-        patch(
-            "app.main.SETTINGS",
-            SimpleNamespace(
-                missing_r2_fields=lambda: [],
-                enable_corpus_pipeline=False,
-                enable_corpus_ingest=False,
-                enable_face_identity_pipeline=True,
-                face_identity_model_id="edgeface_s_gamma_05",
-                face_identity_backend="auto",
-                missing_face_identity_fields=lambda: [],
-            ),
-        ),
-        patch("app.main.edgeface_runtime_note", return_value="edgeface-runtime-note"),
-    ):
-        from app.main import _startup_validate_settings
-
-        with caplog.at_level(logging.INFO):
-            _startup_validate_settings()
-
-    assert (
-        "Face identity runtime configured model_profile=edgeface_s_gamma_05 backend_preference=auto"
-        in caplog.text
-    )
-    assert "edgeface-runtime-note" in caplog.text
+    assert set(job["result"].keys()) == {"job_id", "frames"}
+    assert len(job["result"]["frames"]) == 1

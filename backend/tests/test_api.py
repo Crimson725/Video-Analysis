@@ -193,44 +193,6 @@ class TestGetResults:
                     },
                 }
             ],
-            "video_object_tracks": {
-                "enabled": True,
-                "method": "object_tracking_v1",
-                "tracks": [
-                    {
-                        "object_track_id": "object_track_1",
-                        "label": "car",
-                        "source_track_id": "car_7",
-                        "confidence": {
-                            "mean": 0.9,
-                            "max": 0.95,
-                            "min": 0.85,
-                            "samples": 2,
-                        },
-                        "frame_span": {
-                            "first_frame_id": 0,
-                            "last_frame_id": 0,
-                            "observation_count": 1,
-                        },
-                        "temporal_span": {
-                            "first_seen": 0.0,
-                            "last_seen": 0.0,
-                            "duration_sec": 0.0,
-                        },
-                        "evidence": [
-                            {
-                                "frame_id": 0,
-                                "timestamp": "00:00:05.000",
-                                "detection_index": 0,
-                                "label": "car",
-                                "track_id": "car_7",
-                                "confidence": 0.9,
-                                "box": [1, 2, 3, 4],
-                            }
-                        ],
-                    }
-                ],
-            },
         }
         jobs.complete_job(job_id, payload)
 
@@ -247,10 +209,6 @@ class TestGetResults:
             "https://signed.example/jobs/"
         )
         assert "toon" not in data["frames"][0]["analysis_artifacts"]
-        assert (
-            data["video_object_tracks"]["tracks"][0]["object_track_id"]
-            == "object_track_1"
-        )
 
     async def test_processing_job_returns_409(self, client):
         job_id = jobs.create_job()
