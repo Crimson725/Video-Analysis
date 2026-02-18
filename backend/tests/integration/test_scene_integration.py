@@ -50,6 +50,7 @@ class TestExtractKeyframesIntegration:
     def test_each_frame_has_required_keys(self, keyframes):
         for frame in keyframes:
             assert "frame_id" in frame
+            assert "scene_id" in frame
             assert "timestamp" in frame
             assert "image" in frame
 
@@ -57,6 +58,15 @@ class TestExtractKeyframesIntegration:
         for frame in keyframes:
             assert isinstance(frame["frame_id"], int)
             assert frame["frame_id"] >= 0
+
+    def test_scene_id_is_nonnegative_int(self, keyframes):
+        for frame in keyframes:
+            assert isinstance(frame["scene_id"], int)
+            assert frame["scene_id"] >= 0
+
+    def test_frame_ids_are_contiguous_and_ordered(self, keyframes):
+        frame_ids = [frame["frame_id"] for frame in keyframes]
+        assert frame_ids == list(range(len(frame_ids)))
 
     def test_timestamp_matches_expected_format(self, keyframes):
         pattern = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3}$")
