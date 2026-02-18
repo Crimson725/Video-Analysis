@@ -7,6 +7,7 @@ from app.jobs import (
     create_job,
     fail_job,
     get_job,
+    set_job_status,
     set_job_stage,
     update_job_metadata,
 )
@@ -24,6 +25,8 @@ class TestCreateJob:
         assert job is not None
         assert job["status"] == "processing"
         assert job["stage"] == "processing"
+        assert job["current_stage"] == "processing"
+        assert job["failed_stage"] is None
 
 
 class TestGetJob:
@@ -50,11 +53,12 @@ class TestCompleteJob:
 class TestFailJob:
     def test_sets_failed_status_and_error(self):
         job_id = create_job()
-        fail_job(job_id, "something broke")
+        fail_job(job_id, "something broke", failed_stage="frame_analysis")
         job = get_job(job_id)
         assert job is not None
         assert job["status"] == "failed"
         assert job["error"] == "something broke"
+        assert job["failed_stage"] == "frame_analysis"
 
 
 class TestInternalStage:
@@ -65,6 +69,14 @@ class TestInternalStage:
         assert job is not None
         assert job["status"] == "processing"
         assert job["stage"] == "waiting_scene_ai"
+        assert job["current_stage"] == "waiting_scene_ai"
+
+    def test_set_job_status_updates_status_field(self):
+        job_id = create_job(status="queued")
+        set_job_status(job_id, "processing")
+        job = get_job(job_id)
+        assert job is not None
+        assert job["status"] == "processing"
 
     def test_update_job_metadata_merges_fields(self):
         job_id = create_job()

@@ -115,6 +115,8 @@ class TestGetStatus:
         assert data["job_id"] == job_id
         assert data["status"] == "processing"
         assert data["error"] is None
+        assert data["current_stage"] == "processing"
+        assert data["failed_stage"] is None
 
     async def test_completed_job(self, client):
         job_id = jobs.create_job()
@@ -127,7 +129,7 @@ class TestGetStatus:
 
     async def test_failed_job(self, client):
         job_id = jobs.create_job()
-        jobs.fail_job(job_id, "some error")
+        jobs.fail_job(job_id, "some error", failed_stage="frame_analysis")
 
         response = await client.get(f"/status/{job_id}")
 
@@ -135,6 +137,7 @@ class TestGetStatus:
         data = response.json()
         assert data["status"] == "failed"
         assert data["error"] == "some error"
+        assert data["failed_stage"] == "frame_analysis"
 
     async def test_unknown_job_returns_404(self, client):
         response = await client.get("/status/nonexistent-id")
@@ -150,6 +153,7 @@ class TestGetStatus:
         data = response.json()
         assert data["status"] == "processing"
         assert data["error"] is None
+        assert data["current_stage"] == "waiting_scene_ai"
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +166,11 @@ class TestGetResults:
         job_id = jobs.create_job()
         payload = {
             "job_id": job_id,
+            "pipeline": {
+                "stages": ["source_upload", "frame_analysis"],
+                "status": [],
+                "failed_stage": None,
+            },
             "frames": [
                 {
                     "frame_id": 0,
@@ -201,6 +210,7 @@ class TestGetResults:
         assert response.status_code == 200
         data = response.json()
         assert data["job_id"] == job_id
+        assert data["pipeline"]["stages"] == ["source_upload", "frame_analysis"]
         assert len(data["frames"]) == 1
         assert data["frames"][0]["files"]["original"].startswith(
             "https://signed.example/jobs/"
@@ -219,11 +229,13 @@ class TestGetResults:
 
     async def test_failed_job_returns_409(self, client):
         job_id = jobs.create_job()
-        jobs.fail_job(job_id, "error occurred")
+        jobs.fail_job(job_id, "error occurred", failed_stage="scene_detection")
 
         response = await client.get(f"/results/{job_id}")
 
         assert response.status_code == 409
+        payload = response.json()
+        assert payload["failed_stage"] == "scene_detection"
 
     async def test_unknown_job_returns_404(self, client):
         response = await client.get("/results/nonexistent-id")

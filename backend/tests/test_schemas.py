@@ -233,7 +233,16 @@ class TestJobResult:
             job_id="abc-123",
             frames=[],
         )
-        assert result.model_dump() == {"job_id": "abc-123", "frames": []}
+        assert result.model_dump() == {
+            "job_id": "abc-123",
+            "pipeline": {
+                "stages": [],
+                "status": [],
+                "failed_stage": None,
+                "mode": None,
+            },
+            "frames": [],
+        }
 
 
 class TestCorpusSchemaValidation:

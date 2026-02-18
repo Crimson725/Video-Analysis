@@ -140,6 +140,7 @@ class FrameMetadata(BaseModel):
     provenance: FrameProvenance
     model_provenance: list[ModelProvenance] = Field(default_factory=list)
     evidence_anchors: list[EvidenceAnchor] = Field(default_factory=list)
+    extensions: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class FrameFiles(BaseModel):
@@ -158,6 +159,7 @@ class FrameAnalysis(BaseModel):
     object_detection: list[DetectionItem] = Field(default_factory=list)
     face_recognition: list[FaceItem] = Field(default_factory=list)
     enrichment: FrameEnrichment = Field(default_factory=FrameEnrichment)
+    extensions: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class AnalysisArtifacts(BaseModel):
@@ -166,6 +168,7 @@ class AnalysisArtifacts(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
     json_artifact: str = Field(..., alias="json")
+    extensions: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class FrameResult(BaseModel):
@@ -337,10 +340,29 @@ class VideoObjectTracksResult(BaseModel):
     tracks: list[VideoObjectTrack] = Field(default_factory=list)
 
 
+class PipelineStageStatus(BaseModel):
+    """Execution status for one modular pipeline stage."""
+
+    stage_id: str
+    status: str
+    error: str | None = None
+    skipped_reason: str | None = None
+
+
+class PipelineMetadata(BaseModel):
+    """Top-level modular pipeline metadata included in job results."""
+
+    stages: list[str] = Field(default_factory=list)
+    status: list[PipelineStageStatus] = Field(default_factory=list)
+    failed_stage: str | None = None
+    mode: str | None = None
+
+
 class JobResult(BaseModel):
     """CV analysis result for a job."""
 
     job_id: str
+    pipeline: PipelineMetadata = Field(default_factory=PipelineMetadata)
     frames: list[FrameResult]
 
 
@@ -350,3 +372,5 @@ class JobStatus(BaseModel):
     job_id: str
     status: str
     error: str | None = None
+    current_stage: str | None = None
+    failed_stage: str | None = None

@@ -89,7 +89,7 @@ def test_process_video_skips_post_cv_pipelines_even_when_enabled():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert set(job["result"].keys()) == {"job_id", "frames"}
+    assert set(job["result"].keys()) == {"job_id", "pipeline", "frames"}
     mock_object_summary.assert_not_called()
     mock_extract_tracking_frames.assert_not_called()
     mock_face_identity.assert_not_called()
@@ -133,5 +133,5 @@ def test_process_video_result_contains_only_cv_outputs():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert set(job["result"].keys()) == {"job_id", "frames"}
+    assert set(job["result"].keys()) == {"job_id", "pipeline", "frames"}
     assert len(job["result"]["frames"]) == 1

@@ -559,7 +559,7 @@ class TestAnalyzeFrame:
             "detection",
             "face",
         }
-        assert set(json_payload["analysis_artifacts"].keys()) == {"json"}
+        assert set(json_payload["analysis_artifacts"].keys()) == {"json", "extensions"}
         assert "metadata" in json_payload
         assert json_payload["analysis"]["object_detection"][0]["track_id"] == "car_1"
         assert len(json_payload["analysis"]["object_detection"][0]["palette_rgb"]) == 3

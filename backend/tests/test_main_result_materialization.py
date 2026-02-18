@@ -35,6 +35,7 @@ def test_materialize_signed_result_urls_normalizes_frame_fields():
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
     frame = result["frames"][0]
+    assert result["pipeline"]["stages"] == []
     assert frame["files"]["original"].startswith("https://signed.example/jobs/")
     assert frame["files"]["preview"] == "https://cdn.example/frame_7.jpg"
     assert frame["analysis"]["object_detection"][0]["track_id"] == "track_7_1"
@@ -57,7 +58,9 @@ def test_materialize_signed_result_urls_ignores_non_cv_fields():
 
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
-    assert result == {"job_id": "job-8", "frames": []}
+    assert result["job_id"] == "job-8"
+    assert result["frames"] == []
+    assert result["pipeline"]["stages"] == []
 
 
 def test_materialize_signed_result_urls_defaults_when_missing():
@@ -69,6 +72,7 @@ def test_materialize_signed_result_urls_defaults_when_missing():
     result = _materialize_signed_result_urls(payload, _StubMediaStore())
 
     assert result["frames"] == []
+    assert result["pipeline"]["stages"] == []
 
 
 def test_materialize_signed_result_urls_ignores_invalid_frame_items():
