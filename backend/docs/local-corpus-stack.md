@@ -42,4 +42,4 @@ SCENE_AI_EXECUTION_MODE=queue uv run python -m app.worker
 ## Troubleshooting
 
 - Corpus output missing: confirm `ENABLE_CORPUS_PIPELINE=true`.
-- Unexpected ingest behavior: ensure `ENABLE_CORPUS_INGEST=false` while legacy ingest is removed.
+- Unexpected ingest behavior: ensure `ENABLE_CORPUS_INGEST=false` while ingest changes are being validated.

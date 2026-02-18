@@ -393,42 +393,6 @@ class VideoAnalysisService:
             )
         return execution, build_result_payload(job_id=job_id, execution=execution)
 
-    def _run_legacy_pipeline(
-        self,
-        *,
-        job_id: str,
-        video_path: str,
-        source_extension: str,
-        upload_content_type: str | None,
-        media_store: MediaStore,
-    ) -> tuple[dict[str, Any], dict[str, Any], str | None]:
-        from app.main import process_video_legacy
-
-        payload = process_video_legacy(
-            job_id=job_id,
-            video_path=video_path,
-            source_extension=source_extension,
-            upload_content_type=upload_content_type,
-            media_store=media_store,
-            model_loader_cls=self.model_loader_cls,
-            temp_media_dir=self.temp_media_dir,
-            on_stage_started=lambda stage_id: self.job_store.set_stage(job_id, stage_id),
-        )
-        pipeline = {
-            "stages": [
-                "source_upload",
-                "scene_detection",
-                "keyframe_extraction",
-                "save_original_frames",
-                "frame_analysis",
-                "artifact_verification",
-            ],
-            "status": [],
-            "failed_stage": None,
-            "mode": "legacy",
-        }
-        return payload, pipeline, payload.get("_source_key")
-
     def run_pipeline_job(
         self,
         job_id: str,
@@ -449,26 +413,17 @@ class VideoAnalysisService:
         self.job_store.set_processing(job_id, current_stage="pipeline_start")
         try:
             media_store = self.media_store_provider()
-            if getattr(self.settings, "use_legacy_orchestration", False):
-                payload, pipeline_metadata, source_key = self._run_legacy_pipeline(
-                    job_id=job_id,
-                    video_path=video_path,
-                    source_extension=source_extension,
-                    upload_content_type=upload_content_type,
-                    media_store=media_store,
-                )
-            else:
-                execution, payload = self._run_modular_pipeline(
-                    job_id=job_id,
-                    video_path=video_path,
-                    source_extension=source_extension,
-                    upload_content_type=upload_content_type,
-                    media_store=media_store,
-                )
-                pipeline_metadata = build_pipeline_metadata(execution)
-                source_key = execution.stage_outputs.get("source_upload", {}).get(
-                    "source_key"
-                )
+            execution, payload = self._run_modular_pipeline(
+                job_id=job_id,
+                video_path=video_path,
+                source_extension=source_extension,
+                upload_content_type=upload_content_type,
+                media_store=media_store,
+            )
+            pipeline_metadata = build_pipeline_metadata(execution)
+            source_key = execution.stage_outputs.get("source_upload", {}).get(
+                "source_key"
+            )
 
             if source_key:
                 source_upload_verified = media_store.verify_object(source_key)

@@ -22,21 +22,14 @@ class TestSettings:
         monkeypatch.delenv("SCENE_AI_EXECUTION_MODE", raising=False)
         monkeypatch.delenv("ENABLE_CORPUS_PIPELINE", raising=False)
         monkeypatch.delenv("ENABLE_CORPUS_INGEST", raising=False)
-        monkeypatch.delenv("USE_LEGACY_ORCHESTRATION", raising=False)
         monkeypatch.delenv("SCENE_MODEL_ID", raising=False)
         monkeypatch.delenv("EMBEDDING_MODEL_ID", raising=False)
         settings = Settings.from_env(autoload_dotenv=False)
         assert settings.scene_ai_execution_mode == "in_process"
         assert settings.enable_corpus_pipeline is True
         assert settings.enable_corpus_ingest is True
-        assert settings.use_legacy_orchestration is False
         assert settings.scene_model_id == "gemini-3-flash-preview"
         assert settings.embedding_model_id == "gemini-embedding-001"
-
-    def test_legacy_orchestration_flag_parses_true(self, monkeypatch):
-        monkeypatch.setenv("USE_LEGACY_ORCHESTRATION", "true")
-        settings = Settings.from_env(autoload_dotenv=False)
-        assert settings.use_legacy_orchestration is True
 
     def test_scene_ai_queue_settings_parse(self, monkeypatch):
         monkeypatch.setenv("SCENE_AI_EXECUTION_MODE", "queue")
@@ -112,15 +105,6 @@ class TestSettings:
         assert settings.face_identity_scene_similarity_threshold == 0.68
         assert settings.face_identity_video_similarity_threshold == 0.74
         assert settings.face_identity_ambiguity_margin == 0.03
-        assert settings.face_identity_model_id == "edgeface_s_gamma_05"
-
-    def test_face_identity_legacy_alias_normalizes_to_default_profile(
-        self, monkeypatch
-    ):
-        monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "edgeface-arcface-torch")
-
-        settings = Settings.from_env(autoload_dotenv=False)
-
         assert settings.face_identity_model_id == "edgeface_s_gamma_05"
 
     def test_invalid_face_identity_model_id_fails_fast(self, monkeypatch):

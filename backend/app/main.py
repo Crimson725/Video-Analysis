@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
@@ -19,7 +19,6 @@ from app.application import (
     build_local_source_path,
     extract_source_extension,
     materialize_signed_result_urls,
-    resolve_video_content_type,
 )
 from app.config import Settings
 from app.infrastructure import InMemoryJobStore
@@ -79,7 +78,7 @@ def _collect_required_artifact_keys(
     result_payload: dict[str, Any],
     source_key: str,
 ) -> set[str]:
-    """Compatibility wrapper for tests using legacy helper import."""
+    """Compatibility wrapper for helper tests."""
     return collect_required_artifact_keys(job_id, result_payload, source_key)
 
 
@@ -88,7 +87,7 @@ def _verify_required_artifacts(
     job_id: str,
     required_keys: set[str],
 ) -> None:
-    """Compatibility wrapper for tests using legacy helper import."""
+    """Compatibility wrapper for helper tests."""
     verify_required_artifacts(media_store, job_id, required_keys)
 
 
@@ -96,7 +95,7 @@ def _materialize_signed_result_urls(
     result_payload: dict[str, Any],
     media_store: MediaStore,
 ) -> dict[str, Any]:
-    """Compatibility wrapper for tests using legacy helper import."""
+    """Compatibility wrapper for helper tests."""
     return materialize_signed_result_urls(
         result_payload=result_payload,
         media_store=media_store,
@@ -105,78 +104,6 @@ def _materialize_signed_result_urls(
         if isinstance(result_payload.get("pipeline"), dict)
         else None,
     )
-
-
-def process_video_legacy(
-    *,
-    job_id: str,
-    video_path: str,
-    source_extension: str = "mp4",
-    upload_content_type: str | None = None,
-    media_store: MediaStore,
-    model_loader_cls: type[ModelLoader],
-    temp_media_dir: Path,
-    on_stage_started: Callable[[str], None] | None = None,
-) -> dict[str, Any]:
-    """Legacy monolithic orchestration kept as temporary rollback path."""
-    if on_stage_started is not None:
-        on_stage_started("source_upload")
-    source_key = media_store.upload_source_video(
-        job_id=job_id,
-        file_path=video_path,
-        content_type=resolve_video_content_type(upload_content_type, source_extension),
-        source_extension=source_extension,
-    )
-    source_upload_verified = media_store.verify_object(source_key)
-    if not source_upload_verified:
-        logger.error("upload.verify.source_failed job_id=%s key=%s", job_id, source_key)
-        raise MediaStoreError(f"Source upload verification failed for key '{source_key}'")
-
-    if on_stage_started is not None:
-        on_stage_started("scene_detection")
-    models = model_loader_cls.get()
-    scenes = scene.detect_scenes(video_path)
-
-    if on_stage_started is not None:
-        on_stage_started("keyframe_extraction")
-    frames = scene.extract_keyframes(video_path, scenes)
-    if not frames:
-        raise RuntimeError("No scenes or frames extracted")
-
-    if on_stage_started is not None:
-        on_stage_started("save_original_frames")
-    scene.save_original_frames(
-        frames, job_id, str(temp_media_dir), media_store=media_store
-    )
-
-    if on_stage_started is not None:
-        on_stage_started("frame_analysis")
-    frame_results: list[dict[str, Any]] = []
-    face_tracker = analysis.FaceIdentityTracker()
-    object_tracker = analysis.ObjectTrackTracker()
-    for frame_data in frames:
-        result = analysis.analyze_frame(
-            frame_data,
-            models,
-            job_id,
-            str(temp_media_dir),
-            media_store=media_store,
-            face_tracker=face_tracker,
-            object_tracker=object_tracker,
-        )
-        frame_results.append(result)
-
-    payload = {
-        "job_id": job_id,
-        "frames": frame_results,
-    }
-
-    if on_stage_started is not None:
-        on_stage_started("artifact_verification")
-    required_keys = _collect_required_artifact_keys(job_id, payload, source_key)
-    _verify_required_artifacts(media_store, job_id, required_keys)
-    payload["_source_key"] = source_key
-    return payload
 
 
 def process_video(

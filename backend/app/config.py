@@ -11,10 +11,6 @@ DEFAULT_FACE_IDENTITY_MODEL_ID = "edgeface_s_gamma_05"
 DEFAULT_PGVECTOR_DSN = (
     "postgresql://video_analysis:video_analysis@127.0.0.1:5433/video_analysis"
 )
-_FACE_IDENTITY_MODEL_ID_ALIASES = {
-    # Legacy alias kept for backward compatibility with prior rollout docs/config.
-    "edgeface-arcface-torch": DEFAULT_FACE_IDENTITY_MODEL_ID,
-}
 SUPPORTED_FACE_IDENTITY_MODEL_IDS = frozenset(
     {
         DEFAULT_FACE_IDENTITY_MODEL_ID,
@@ -92,18 +88,14 @@ def normalize_face_identity_model_id(raw: str | None) -> str:
     if not normalized:
         return DEFAULT_FACE_IDENTITY_MODEL_ID
 
-    resolved = _FACE_IDENTITY_MODEL_ID_ALIASES.get(normalized, normalized)
-    if resolved in SUPPORTED_FACE_IDENTITY_MODEL_IDS:
-        return resolved
+    if normalized in SUPPORTED_FACE_IDENTITY_MODEL_IDS:
+        return normalized
 
     supported = ", ".join(sorted(SUPPORTED_FACE_IDENTITY_MODEL_IDS))
-    aliases = ", ".join(sorted(_FACE_IDENTITY_MODEL_ID_ALIASES))
     message = (
         f"Unsupported FACE_IDENTITY_MODEL_ID='{normalized}'. "
         f"Supported profiles: {supported}."
     )
-    if aliases:
-        message += f" Legacy aliases: {aliases}."
     raise ValueError(message)
 
 
@@ -292,15 +284,6 @@ def _face_identity_settings(
     }
 
 
-def _orchestration_settings() -> dict[str, Any]:
-    return {
-        "use_legacy_orchestration": _read_bool(
-            "USE_LEGACY_ORCHESTRATION",
-            default=False,
-        )
-    }
-
-
 @dataclass(frozen=True)
 class Settings:
     """Runtime settings for API and media storage."""
@@ -356,7 +339,6 @@ class Settings:
     face_identity_embedding_dimension: int
     face_identity_model_id: str
     face_identity_weights_path: str
-    use_legacy_orchestration: bool
 
     @classmethod
     def from_env(
@@ -386,7 +368,6 @@ class Settings:
                 enable_face_identity_pipeline=enable_face_identity_pipeline,
                 face_identity_model_id=face_identity_model_id,
             ),
-            **_orchestration_settings(),
         )
 
     def missing_r2_fields(self) -> list[str]:
