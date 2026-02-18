@@ -149,6 +149,7 @@ def _default_frame_metadata(
     job_id: Any,
     frame_id: int,
     timestamp: str,
+    raw_frame_index: int | None,
     source_artifact_key: str,
 ) -> dict[str, Any]:
     resolved_job_id = "" if job_id is None else job_id
@@ -158,6 +159,7 @@ def _default_frame_metadata(
             "scene_id": None,
             "frame_id": frame_id,
             "timestamp": timestamp,
+            "raw_frame_index": raw_frame_index,
             "source_artifact_key": source_artifact_key,
         },
         "model_provenance": [],
@@ -196,6 +198,13 @@ def _materialize_frame_result(
 
     frame_id = int(frame.get("frame_id", 0))
     timestamp = str(frame.get("timestamp", ""))
+    raw_frame_index_value = frame.get("raw_frame_index")
+    raw_frame_index = (
+        raw_frame_index_value
+        if isinstance(raw_frame_index_value, int)
+        and not isinstance(raw_frame_index_value, bool)
+        else None
+    )
     raw_analysis = frame.get("analysis", {})
     if not isinstance(raw_analysis, dict):
         raw_analysis = {}
@@ -215,13 +224,18 @@ def _materialize_frame_result(
             job_id=job_id,
             frame_id=frame_id,
             timestamp=timestamp,
+            raw_frame_index=raw_frame_index,
             source_artifact_key=files.get("original", ""),
         )
+    provenance = metadata.get("provenance")
+    if isinstance(provenance, dict):
+        provenance.setdefault("raw_frame_index", raw_frame_index)
     metadata.setdefault("extensions", {})
 
     return {
         "frame_id": frame_id,
         "timestamp": timestamp,
+        "raw_frame_index": raw_frame_index,
         "files": files,
         "analysis": {
             "semantic_segmentation": raw_analysis.get("semantic_segmentation", []),

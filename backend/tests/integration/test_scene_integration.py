@@ -52,12 +52,15 @@ class TestExtractKeyframesIntegration:
             assert "frame_id" in frame
             assert "scene_id" in frame
             assert "timestamp" in frame
+            assert "raw_frame_index" in frame
             assert "image" in frame
 
     def test_frame_id_is_nonnegative_int(self, keyframes):
         for frame in keyframes:
             assert isinstance(frame["frame_id"], int)
             assert frame["frame_id"] >= 0
+            assert isinstance(frame["raw_frame_index"], int)
+            assert frame["raw_frame_index"] >= 0
 
     def test_scene_id_is_nonnegative_int(self, keyframes):
         for frame in keyframes:

@@ -196,6 +196,7 @@ class TestJobResult:
                 FrameResult(
                     frame_id=0,
                     timestamp="00:00:05.000",
+                    raw_frame_index=125,
                     files=FrameFiles(
                         original="https://example.com/jobs/abc/frames/original/frame_0.jpg?sig=1",
                         segmentation="https://example.com/jobs/abc/frames/seg/frame_0.jpg?sig=1",
@@ -216,6 +217,7 @@ class TestJobResult:
                             "scene_id": None,
                             "frame_id": 0,
                             "timestamp": "00:00:05.000",
+                            "raw_frame_index": 125,
                             "source_artifact_key": "https://example.com/jobs/abc/frames/original/frame_0.jpg?sig=1",
                         },
                         "model_provenance": [],

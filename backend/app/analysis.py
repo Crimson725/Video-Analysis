@@ -761,6 +761,7 @@ def _build_frame_metadata(
     job_id: str,
     frame_id: int,
     timestamp: str,
+    raw_frame_index: int | None,
     source_artifact_key: str,
     models: Any,
     evidence_anchors: list[dict[str, Any]],
@@ -796,6 +797,7 @@ def _build_frame_metadata(
             "scene_id": None,
             "frame_id": frame_id,
             "timestamp": timestamp,
+            "raw_frame_index": raw_frame_index,
             "source_artifact_key": source_artifact_key,
         },
         "model_provenance": model_entries,
@@ -816,6 +818,9 @@ def analyze_frame(
     image = frame_data["image"]
     frame_id = frame_data["frame_id"]
     timestamp = frame_data["timestamp"]
+    raw_frame_index = frame_data.get("raw_frame_index")
+    if not isinstance(raw_frame_index, int) or isinstance(raw_frame_index, bool):
+        raw_frame_index = None
 
     seg_items = run_segmentation(
         image, models.segmenter, job_id, frame_id, local_dir, media_store
@@ -854,6 +859,7 @@ def analyze_frame(
         job_id=job_id,
         frame_id=frame_id,
         timestamp=timestamp,
+        raw_frame_index=raw_frame_index,
         source_artifact_key=files["original"],
         models=models,
         evidence_anchors=evidence_anchors,
@@ -862,6 +868,7 @@ def analyze_frame(
     frame_payload: dict[str, Any] = {
         "frame_id": frame_id,
         "timestamp": timestamp,
+        "raw_frame_index": raw_frame_index,
         "files": files,
         "analysis": {
             "semantic_segmentation": seg_items,

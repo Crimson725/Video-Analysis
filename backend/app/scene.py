@@ -240,7 +240,8 @@ def _select_scene_extraction_points(
 def extract_keyframes(video_path: str, scenes: list[tuple[float, float]]) -> list[dict]:
     """
     Extract robust keyframes per scene under a duration-tiered budget.
-    Returns list of dicts with frame_id, scene_id, timestamp, image (numpy array BGR).
+    Returns list of dicts with frame_id, scene_id, timestamp, raw_frame_index,
+    image (numpy array BGR).
     """
     cap = cv2.VideoCapture(video_path)
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
@@ -272,6 +273,7 @@ def extract_keyframes(video_path: str, scenes: list[tuple[float, float]]) -> lis
                 "frame_id": len(frames),
                 "scene_id": scene_id,
                 "timestamp": timestamp,
+                "raw_frame_index": frame_index,
                 "image": image,
             }
         )

@@ -131,6 +131,7 @@ class FrameProvenance(BaseModel):
     scene_id: int | None = None
     frame_id: int
     timestamp: str
+    raw_frame_index: int | None = None
     source_artifact_key: str
 
 
@@ -176,6 +177,7 @@ class FrameResult(BaseModel):
 
     frame_id: int
     timestamp: str
+    raw_frame_index: int | None = None
     files: FrameFiles
     analysis: FrameAnalysis
     analysis_artifacts: AnalysisArtifacts

@@ -20,6 +20,7 @@ def _default_frame(frame_id: int) -> dict[str, Any]:
     return {
         "frame_id": frame_id,
         "timestamp": "",
+        "raw_frame_index": None,
         "files": {},
         "analysis": {
             "semantic_segmentation": [],
@@ -117,6 +118,11 @@ def aggregate_pipeline_frames(
             timestamp = update.get("timestamp")
             if isinstance(timestamp, str) and timestamp:
                 frame["timestamp"] = timestamp
+            raw_frame_index = update.get("raw_frame_index")
+            if isinstance(raw_frame_index, int) and not isinstance(
+                raw_frame_index, bool
+            ):
+                frame["raw_frame_index"] = raw_frame_index
 
             files = update.get("files")
             if isinstance(files, dict):

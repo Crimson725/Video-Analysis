@@ -466,12 +466,14 @@ class TestAnalyzeFrame:
             "image": np.zeros((100, 100, 3), dtype=np.uint8),
             "frame_id": 0,
             "timestamp": "00:00:05.000",
+            "raw_frame_index": 125,
         }
 
         result = analyze_frame(frame_data, mock_models, "job-1", static_dir)
 
         assert result["frame_id"] == 0
         assert result["timestamp"] == "00:00:05.000"
+        assert result["raw_frame_index"] == 125
         assert "files" in result
         assert "original" in result["files"]
         assert "segmentation" in result["files"]
@@ -541,6 +543,7 @@ class TestAnalyzeFrame:
             "image": np.zeros((100, 100, 3), dtype=np.uint8),
             "frame_id": 0,
             "timestamp": "00:00:05.000",
+            "raw_frame_index": 50,
         }
 
         analyze_frame(
@@ -553,6 +556,7 @@ class TestAnalyzeFrame:
         assert first_call.args[0:3] == ("job-1", "json", 0)
         json_payload = json.loads(first_call.args[3].decode("utf-8"))
         assert json_payload["frame_id"] == 0
+        assert json_payload["raw_frame_index"] == 50
         assert set(json_payload["files"].keys()) == {
             "original",
             "segmentation",
@@ -605,11 +609,13 @@ class TestAnalyzeFrame:
             "image": np.zeros((100, 100, 3), dtype=np.uint8),
             "frame_id": 0,
             "timestamp": "00:00:01.000",
+            "raw_frame_index": 10,
         }
         frame_1 = {
             "image": np.zeros((100, 100, 3), dtype=np.uint8),
             "frame_id": 1,
             "timestamp": "00:00:02.000",
+            "raw_frame_index": 20,
         }
 
         analyze_frame(

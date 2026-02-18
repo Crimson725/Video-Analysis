@@ -15,6 +15,7 @@ def test_materialize_signed_result_urls_normalizes_frame_fields():
             {
                 "frame_id": 7,
                 "timestamp": "00:00:07.000",
+                "raw_frame_index": 175,
                 "files": {
                     "original": "jobs/job-123/frames/original/frame_7.jpg",
                     "preview": "https://cdn.example/frame_7.jpg",
@@ -40,6 +41,8 @@ def test_materialize_signed_result_urls_normalizes_frame_fields():
     assert frame["files"]["preview"] == "https://cdn.example/frame_7.jpg"
     assert frame["analysis"]["object_detection"][0]["track_id"] == "track_7_1"
     assert frame["analysis"]["face_recognition"][0]["identity_id"] == "face_1"
+    assert frame["raw_frame_index"] == 175
+    assert frame["metadata"]["provenance"]["raw_frame_index"] == 175
     assert frame["metadata"]["provenance"]["job_id"] == "job-123"
     assert frame["metadata"]["provenance"]["source_artifact_key"].startswith(
         "https://signed.example/jobs/"

@@ -99,6 +99,7 @@ class FrameAnalysisStage:
             frame_id = int(frame.get("frame_id", 0))
             frame_updates[frame_id] = {
                 "timestamp": str(frame.get("timestamp", "")),
+                "raw_frame_index": frame.get("raw_frame_index"),
                 "files": dict(frame.get("files", {})),
                 "analysis": dict(frame.get("analysis", {})),
                 "analysis_artifacts": dict(frame.get("analysis_artifacts", {})),

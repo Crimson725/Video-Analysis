@@ -126,6 +126,7 @@ class TestExtractKeyframes:
             "00:00:01.000",
             "00:00:01.900",
         ]
+        assert [frame["raw_frame_index"] for frame in result] == [0, 10, 19]
         assert cap.released is True
 
     @patch("app.scene.cv2.VideoCapture")
@@ -179,6 +180,7 @@ class TestExtractKeyframes:
         assert len(result) == 2
         assert [frame["frame_id"] for frame in result] == [0, 1]
         assert [frame["timestamp"] for frame in result] == ["00:00:00.000", "00:00:01.900"]
+        assert [frame["raw_frame_index"] for frame in result] == [0, 19]
 
     @patch("app.scene.cv2.VideoCapture")
     def test_timestamp_format_for_large_hour_values(self, mock_video_capture):
