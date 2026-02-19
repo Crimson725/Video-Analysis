@@ -298,6 +298,11 @@ def _parallel_tracking_settings() -> dict[str, Any]:
             default=10,
             minimum=1,
         ),
+        "parallel_tracking_max_entities": _read_int(
+            "PARALLEL_TRACKING_MAX_ENTITIES",
+            default=20,
+            minimum=1,
+        ),
         "parallel_tracking_chunk_max_workers": _read_int(
             "PARALLEL_TRACKING_CHUNK_MAX_WORKERS",
             default=_default_chunk_worker_budget(),
@@ -325,8 +330,8 @@ def _parallel_tracking_settings() -> dict[str, Any]:
         ),
         "parallel_tracking_confidence_threshold": _read_float(
             "PARALLEL_TRACKING_CONFIDENCE_THRESHOLD",
-            default=0.05,
-            minimum=0.0,
+            default=0.4,
+            minimum=0.3,
         ),
         "parallel_tracking_min_cosine": _read_float(
             "PARALLEL_TRACKING_MIN_COSINE",
@@ -469,6 +474,7 @@ class Settings:
     parallel_tracking_chunk_duration_sec: int
     parallel_tracking_overlap_sec: int
     parallel_tracking_sample_fps: int
+    parallel_tracking_max_entities: int
     parallel_tracking_chunk_max_workers: int
     parallel_tracking_detector_weights: str
     parallel_tracking_tracker_config: str

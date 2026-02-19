@@ -42,6 +42,7 @@ def _summary_config(**overrides) -> parallel_tracking.ChunkedTrackingConfig:
         chunk_duration_sec=300.0,
         overlap_sec=15.0,
         sample_fps=10,
+        max_entities=20,
         chunk_max_workers=2,
         detector_weights="yolo11n.pt",
         tracker_config="botsort_reid.yaml",
@@ -855,6 +856,7 @@ def test_simplified_video_summary_builds_zone_definition_and_transitions():
         frame_width=900,
         frame_height=900,
         sample_fps=10,
+        max_entities=20,
         zone_definition_strategy=parallel_tracking._build_zone_definition_3x3,
     )
 
@@ -881,6 +883,33 @@ def test_simplified_video_summary_builds_zone_definition_and_transitions():
         {"from": "top-left", "to": "center", "at_ms": 1100},
         {"from": "center", "to": "bottom-right", "at_ms": 1200},
     ]
+
+
+def test_simplified_video_summary_caps_entities():
+    rows = [
+        _row(
+            t_ms=1000 + gid,
+            global_id=gid,
+            class_id=0,
+            x1=10,
+            y1=10,
+            x2=70,
+            y2=70,
+        )
+        for gid in range(1, 26)
+    ]
+    _, entities = parallel_tracking._build_simplified_video_summary(
+        canonical_rows=rows,
+        class_name_map={0: "person"},
+        frame_width=900,
+        frame_height=900,
+        sample_fps=10,
+        max_entities=20,
+        zone_definition_strategy=parallel_tracking._build_zone_definition_3x3,
+    )
+
+    assert len(entities) == 20
+    assert [entity["global_track_id"] for entity in entities] == list(range(1, 21))
 
 
 def test_parallel_chunk_reducer_orders_results_by_chunk_id_even_when_workers_finish_out_of_order(

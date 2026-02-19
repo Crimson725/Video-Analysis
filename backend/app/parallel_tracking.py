@@ -64,6 +64,7 @@ class ChunkedTrackingConfig:
     chunk_duration_sec: float
     overlap_sec: float
     sample_fps: int
+    max_entities: int
     chunk_max_workers: int
     detector_weights: str
     tracker_config: str
@@ -97,6 +98,9 @@ class ChunkedTrackingConfig:
             ),
         )
         sample_fps = max(1, int(getattr(settings, "parallel_tracking_sample_fps", 10)))
+        max_entities = max(
+            1, int(getattr(settings, "parallel_tracking_max_entities", 20))
+        )
         chunk_max_workers = max(
             1, int(getattr(settings, "parallel_tracking_chunk_max_workers", 1))
         )
@@ -115,6 +119,7 @@ class ChunkedTrackingConfig:
             chunk_duration_sec=chunk_duration,
             overlap_sec=overlap,
             sample_fps=sample_fps,
+            max_entities=max_entities,
             chunk_max_workers=chunk_max_workers,
             detector_weights=str(
                 getattr(settings, "parallel_tracking_detector_weights", "yolo11n.pt")
@@ -1561,12 +1566,13 @@ def _build_simplified_video_entities(
     frame_width: int,
     frame_height: int,
     sample_fps: int,
+    max_entities: int,
 ) -> list[dict[str, Any]]:
     grouped: dict[int, list[CanonicalTrackRow]] = {}
     for row in canonical_rows:
         grouped.setdefault(int(row.global_id), []).append(row)
 
-    entities: list[dict[str, Any]] = []
+    ranked_entities: list[tuple[tuple[int, int, int], dict[str, Any]]] = []
     for global_id, rows in sorted(grouped.items(), key=lambda item: item[0]):
         ordered = sorted(rows, key=lambda item: int(item.t_ms))
         class_id = int(ordered[0].class_id)
@@ -1628,9 +1634,15 @@ def _build_simplified_video_entities(
                 last_seen_ms,
             ][: _DEFAULT_EVIDENCE_POINTS],
         }
-        entities.append(entity)
+        rank_key = (
+            -len(ordered),
+            -(last_seen_ms - first_seen_ms),
+            int(global_id),
+        )
+        ranked_entities.append((rank_key, entity))
 
-    return entities
+    ranked_entities.sort(key=lambda item: item[0])
+    return [entity for _, entity in ranked_entities[: max(1, max_entities)]]
 
 
 def _build_simplified_video_summary(
@@ -1640,6 +1652,7 @@ def _build_simplified_video_summary(
     frame_width: int,
     frame_height: int,
     sample_fps: int,
+    max_entities: int,
     zone_definition_strategy: ZoneDefinitionStrategy,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     zone_definition = zone_definition_strategy(frame_width, frame_height)
@@ -1649,6 +1662,7 @@ def _build_simplified_video_summary(
         frame_width=frame_width,
         frame_height=frame_height,
         sample_fps=sample_fps,
+        max_entities=max_entities,
     )
     return zone_definition, entities
 
@@ -1929,6 +1943,7 @@ def run_parallel_chunked_tracking(
         frame_width=frame_width,
         frame_height=frame_height,
         sample_fps=config.sample_fps,
+        max_entities=config.max_entities,
         zone_definition_strategy=zone_definition_strategy,
     )
 

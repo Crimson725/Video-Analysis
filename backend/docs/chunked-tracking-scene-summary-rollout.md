@@ -13,6 +13,8 @@ video-level 3x3-zone chunk-tracking summaries.
   - Budget hint for chunk-tracking branch scheduling.
 - `PARALLEL_TRACKING_CHUNK_MAX_WORKERS=<int>`
   - Maximum chunk extraction workers inside the chunk-tracking branch.
+- `PARALLEL_TRACKING_MAX_ENTITIES=<int>`
+  - Hard cap for `summary_v2` entity count in `tracks.video_summary.json` (default: `20`).
 
 Safe defaults are CPU-aware and conservative to avoid starvation on small hosts.
 
