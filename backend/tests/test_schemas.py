@@ -235,16 +235,175 @@ class TestJobResult:
             job_id="abc-123",
             frames=[],
         )
-        assert result.model_dump() == {
-            "job_id": "abc-123",
-            "pipeline": {
-                "stages": [],
-                "status": [],
-                "failed_stage": None,
-                "mode": None,
-            },
-            "frames": [],
+        payload = result.model_dump()
+        assert payload["job_id"] == "abc-123"
+        assert payload["frames"] == []
+        assert payload["pipeline"] == {
+            "stages": [],
+            "status": [],
+            "failed_stage": None,
+            "mode": None,
         }
+        assert payload["branch_metadata"] is None
+        assert payload["video_chunked_tracks"] is None
+
+    def test_job_result_accepts_video_level_chunked_tracking_payload(self):
+        result = JobResult(
+            job_id="abc-123",
+            frames=[],
+            branch_metadata={
+                "frame_analysis": {"status": "success"},
+                "chunk_tracking": {"status": "success"},
+            },
+            video_chunked_tracks={
+                "enabled": True,
+                "method": "chunked_botsort_stitch_v1",
+                "output_mode": "summary_v2",
+                "tracks": [],
+                "scenes": [],
+                "zone_definition": {
+                    "layout": "3x3",
+                    "frame_width": 1920,
+                    "frame_height": 1080,
+                    "labels": [
+                        "top-left",
+                        "top-center",
+                        "top-right",
+                        "middle-left",
+                        "center",
+                        "middle-right",
+                        "bottom-left",
+                        "bottom-center",
+                        "bottom-right",
+                    ],
+                    "zones": {
+                        "top-left": {"x1": 0, "y1": 0, "x2": 640, "y2": 360},
+                        "top-center": {"x1": 640, "y1": 0, "x2": 1280, "y2": 360},
+                        "top-right": {"x1": 1280, "y1": 0, "x2": 1920, "y2": 360},
+                        "middle-left": {"x1": 0, "y1": 360, "x2": 640, "y2": 720},
+                        "center": {"x1": 640, "y1": 360, "x2": 1280, "y2": 720},
+                        "middle-right": {"x1": 1280, "y1": 360, "x2": 1920, "y2": 720},
+                        "bottom-left": {"x1": 0, "y1": 720, "x2": 640, "y2": 1080},
+                        "bottom-center": {"x1": 640, "y1": 720, "x2": 1280, "y2": 1080},
+                        "bottom-right": {"x1": 1280, "y1": 720, "x2": 1920, "y2": 1080},
+                    },
+                },
+                "entities": [
+                    {
+                        "entity_id": "person-41",
+                        "global_track_id": 41,
+                        "entity_type": "person",
+                        "label": "person",
+                        "first_seen_ms": 601120,
+                        "last_seen_ms": 617900,
+                        "appearance_ranges_ms": [
+                            {"start_ms": 601120, "end_ms": 617900}
+                        ],
+                        "zones_visited": ["top-left", "center", "bottom-right"],
+                        "zone_occupancy": {
+                            "bottom-right": 2,
+                            "center": 6,
+                            "top-left": 3,
+                        },
+                        "zone_transitions": [
+                            {"from": "top-left", "to": "center", "at_ms": 606000},
+                            {"from": "center", "to": "bottom-right", "at_ms": 612400},
+                        ],
+                        "evidence_timestamps_ms": [605800, 617900],
+                    }
+                ],
+            },
+        )
+
+        payload = result.model_dump()
+        assert payload["branch_metadata"]["frame_analysis"]["status"] == "success"
+        entity = payload["video_chunked_tracks"]["entities"][0]
+        assert entity["entity_id"] == "person-41"
+        assert entity["zones_visited"] == ["top-left", "center", "bottom-right"]
+        assert entity["zone_transitions"][0]["from"] == "top-left"
+        assert entity["zone_transitions"][1]["to"] == "bottom-right"
+
+    def test_job_result_accepts_legacy_compact_chunked_tracking_payload_for_rollback(self):
+        result = JobResult(
+            job_id="abc-123",
+            frames=[],
+            video_chunked_tracks={
+                "enabled": True,
+                "method": "chunked_botsort_stitch_v1",
+                "output_mode": "legacy",
+                "tracks": [
+                    {
+                        "id": 1,
+                        "cls": 0,
+                        "conf": 0.62,
+                        "spans": [
+                            {
+                                "s_ms": 120340,
+                                "e_ms": 127900,
+                                "k": [[120340, 5123, 6011, 1234, 2200]],
+                            }
+                        ],
+                    }
+                ],
+                "scenes": [
+                    {
+                        "scene_ts_ms": 120000,
+                        "scene_te_ms": 128000,
+                        "track_ids": [1],
+                        "track_slices": [
+                            {
+                                "id": 1,
+                                "cls": 0,
+                                "k": [[120340, 5123, 6011, 1234, 2200]],
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        payload = result.model_dump()
+        assert payload["video_chunked_tracks"]["output_mode"] == "legacy"
+        assert payload["video_chunked_tracks"]["tracks"][0]["id"] == 1
+
+    def test_job_result_rejects_invalid_entity_appearance_range(self):
+        with pytest.raises(ValidationError):
+            JobResult(
+                job_id="abc-123",
+                frames=[],
+                video_chunked_tracks={
+                    "enabled": True,
+                    "method": "chunked_botsort_stitch_v1",
+                    "output_mode": "summary_v2",
+                    "tracks": [],
+                    "scenes": [],
+                    "zone_definition": {
+                        "layout": "3x3",
+                        "frame_width": 1000,
+                        "frame_height": 1000,
+                        "labels": ["top-left"],
+                        "zones": {"top-left": {"x1": 0, "y1": 0, "x2": 333, "y2": 333}},
+                    },
+                    "entities": [
+                        {
+                            "entity_id": "person-1",
+                            "global_track_id": 1,
+                            "entity_type": "person",
+                            "label": "person",
+                            "first_seen_ms": 1000,
+                            "last_seen_ms": 2000,
+                            "appearance_ranges_ms": [
+                                {
+                                    "start_ms": 1000,
+                                    "end_ms": "bad",
+                                }
+                            ],
+                            "zones_visited": [],
+                            "zone_occupancy": {},
+                        }
+                    ],
+                },
+            )
 
 
 class TestCorpusSchemaValidation:

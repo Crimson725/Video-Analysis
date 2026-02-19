@@ -262,8 +262,14 @@ def materialize_signed_result_urls(
         "pipeline": result_payload.get("pipeline")
         if isinstance(result_payload.get("pipeline"), dict)
         else (fallback_pipeline or {"stages": [], "status": [], "failed_stage": None}),
+        "branch_metadata": result_payload.get("branch_metadata")
+        if isinstance(result_payload.get("branch_metadata"), dict)
+        else None,
         "frames": [],
     }
+    raw_chunked_tracks = result_payload.get("video_chunked_tracks")
+    if isinstance(raw_chunked_tracks, dict):
+        payload["video_chunked_tracks"] = dict(raw_chunked_tracks)
 
     raw_frames = result_payload.get("frames", [])
     if not isinstance(raw_frames, list):

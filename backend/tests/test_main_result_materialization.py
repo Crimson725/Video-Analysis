@@ -66,6 +66,44 @@ def test_materialize_signed_result_urls_ignores_non_cv_fields():
     assert result["pipeline"]["stages"] == []
 
 
+def test_materialize_signed_result_urls_preserves_chunked_tracking_payload():
+    payload = {
+        "job_id": "job-11",
+        "branch_metadata": {
+            "frame_analysis": {"status": "success"},
+            "chunk_tracking": {"status": "success"},
+        },
+        "frames": [],
+        "video_chunked_tracks": {
+            "enabled": True,
+            "method": "chunked_botsort_stitch_v1",
+            "output_mode": "summary_v2",
+            "tracks": [],
+            "scenes": [],
+            "zone_definition": {
+                "layout": "3x3",
+                "frame_width": 1920,
+                "frame_height": 1080,
+                "labels": ["top-left"],
+                "zones": {"top-left": {"x1": 0, "y1": 0, "x2": 640, "y2": 360}},
+            },
+            "entities": [],
+            "artifacts": {"video_summary_json": "jobs/job-11/tracking/tracks.video_summary.json"},
+        },
+    }
+
+    result = _materialize_signed_result_urls(payload, _StubMediaStore())
+
+    assert result["job_id"] == "job-11"
+    assert result["branch_metadata"]["chunk_tracking"]["status"] == "success"
+    assert result["video_chunked_tracks"]["enabled"] is True
+    assert result["video_chunked_tracks"]["method"] == "chunked_botsort_stitch_v1"
+    assert result["video_chunked_tracks"]["output_mode"] == "summary_v2"
+    assert result["video_chunked_tracks"]["tracks"] == []
+    assert result["video_chunked_tracks"]["scenes"] == []
+    assert result["video_chunked_tracks"]["entities"] == []
+
+
 def test_materialize_signed_result_urls_defaults_when_missing():
     payload = {
         "job_id": "job-9",

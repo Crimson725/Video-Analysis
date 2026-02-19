@@ -342,6 +342,131 @@ class VideoObjectTracksResult(BaseModel):
     tracks: list[VideoObjectTrack] = Field(default_factory=list)
 
 
+class ChunkedTrackSpan(BaseModel):
+    """One continuous visibility segment for a compact global track."""
+
+    s_ms: int
+    e_ms: int
+    k: list[tuple[int, int, int, int, int]] = Field(default_factory=list)
+
+
+class ChunkedTrack(BaseModel):
+    """Track-centric compact object trajectory."""
+
+    id: int
+    cls: int
+    conf: float
+    spans: list[ChunkedTrackSpan] = Field(default_factory=list)
+
+
+class ChunkedSceneTrackSlice(BaseModel):
+    """Scene-clipped key-box samples for one global track."""
+
+    id: int
+    cls: int
+    k: list[tuple[int, int, int, int, int]] = Field(default_factory=list)
+
+
+class ChunkedScenePacket(BaseModel):
+    """Scene-level sparse references into global compact tracks."""
+
+    scene_ts_ms: int
+    scene_te_ms: int
+    track_ids: list[int] = Field(default_factory=list)
+    track_slices: list[ChunkedSceneTrackSlice] = Field(default_factory=list)
+
+
+class ChunkedSceneEntity(BaseModel):
+    """Compact scene-level entity record from stitched tracking rows."""
+
+    id: int
+    label: str
+    p: list[int] = Field(..., min_length=2, max_length=2)
+    m: str
+    path: str | None = None
+    ev: list[int] = Field(..., min_length=2, max_length=2)
+
+
+class ChunkedSceneSummary(BaseModel):
+    """Bounded-size scene summary for chunked tracking output."""
+
+    scene_id: int
+    ts_ms: int
+    te_ms: int
+    grid: str
+    entities_top: list[ChunkedSceneEntity] = Field(default_factory=list)
+    counts_by_label_tail: dict[str, int] = Field(default_factory=dict)
+
+
+class ZoneBoundary(BaseModel):
+    """Pixel-space boundary for one semantic zone."""
+
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
+class ZoneDefinition(BaseModel):
+    """Per-video 3x3 zone taxonomy and coordinates."""
+
+    layout: str
+    frame_width: int
+    frame_height: int
+    labels: list[str] = Field(default_factory=list)
+    zones: dict[str, ZoneBoundary] = Field(default_factory=dict)
+
+
+class EntityAppearanceRange(BaseModel):
+    """One merged visibility interval for an entity."""
+
+    start_ms: int
+    end_ms: int
+
+
+class EntityZoneTransition(BaseModel):
+    """Signal for one zone-to-zone movement event."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    from_zone: str = Field(..., alias="from")
+    to_zone: str = Field(..., alias="to")
+    at_ms: int
+
+
+class SimplifiedTrackedEntity(BaseModel):
+    """Video-level compact tracking record for one entity."""
+
+    entity_id: str
+    global_track_id: int
+    entity_type: str
+    label: str
+    first_seen_ms: int
+    last_seen_ms: int
+    appearance_ranges_ms: list[EntityAppearanceRange] = Field(default_factory=list)
+    zones_visited: list[str] = Field(default_factory=list)
+    zone_occupancy: dict[str, int] = Field(default_factory=dict)
+    zone_transitions: list[EntityZoneTransition] = Field(default_factory=list)
+    evidence_timestamps_ms: list[int] = Field(default_factory=list)
+
+
+class VideoChunkedTracksResult(BaseModel):
+    """Parallel chunked tracking output payload."""
+
+    enabled: bool
+    method: str
+    embedding_mode: str | None = None
+    output_mode: str | None = None
+    tracks: list[ChunkedTrack] = Field(default_factory=list)
+    scenes: list[ChunkedScenePacket | ChunkedSceneSummary] = Field(default_factory=list)
+    zone_definition: ZoneDefinition | None = None
+    entities: list[SimplifiedTrackedEntity] = Field(default_factory=list)
+    stats: dict[str, Any] = Field(default_factory=dict)
+    artifacts: dict[str, str] = Field(default_factory=dict)
+    rollout: dict[str, Any] | None = None
+    error: str | None = None
+
+
 class PipelineStageStatus(BaseModel):
     """Execution status for one modular pipeline stage."""
 
@@ -360,12 +485,28 @@ class PipelineMetadata(BaseModel):
     mode: str | None = None
 
 
+class BranchExecutionState(BaseModel):
+    """Branch-level execution status metadata."""
+
+    status: str
+    error: str | None = None
+
+
+class BranchExecutionMetadata(BaseModel):
+    """Independent execution outcomes for analysis branches."""
+
+    frame_analysis: BranchExecutionState | None = None
+    chunk_tracking: BranchExecutionState | None = None
+
+
 class JobResult(BaseModel):
     """CV analysis result for a job."""
 
     job_id: str
     pipeline: PipelineMetadata = Field(default_factory=PipelineMetadata)
+    branch_metadata: BranchExecutionMetadata | None = None
     frames: list[FrameResult]
+    video_chunked_tracks: VideoChunkedTracksResult | None = None
 
 
 class JobStatus(BaseModel):

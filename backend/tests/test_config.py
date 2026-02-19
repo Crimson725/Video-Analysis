@@ -31,6 +31,75 @@ class TestSettings:
         assert settings.scene_model_id == "gemini-3-flash-preview"
         assert settings.embedding_model_id == "gemini-embedding-001"
 
+    def test_parallel_chunked_tracking_defaults(self, monkeypatch):
+        monkeypatch.delenv("ENABLE_PARALLEL_CHUNKED_TRACKING_PIPELINE", raising=False)
+        monkeypatch.delenv("ENABLE_PIPELINE_BRANCH_CONCURRENCY", raising=False)
+        monkeypatch.delenv("PIPELINE_FRAME_BRANCH_WORKER_BUDGET", raising=False)
+        monkeypatch.delenv("PIPELINE_CHUNK_BRANCH_WORKER_BUDGET", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_GROUND_TRUTH_BACKEND", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_OUTPUT_MODE", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_SCENE_TOP_ENTITIES", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_SCENE_GRID_WIDTH", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_SCENE_GRID_HEIGHT", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_SCENE_PATH_MAX_SEGMENTS", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_CHUNK_DURATION_SEC", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_OVERLAP_SEC", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_SAMPLE_FPS", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_CHUNK_MAX_WORKERS", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_TRACKER_CONFIG", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_BACKEND_STRATEGY", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_STITCH_STRATEGY", raising=False)
+        monkeypatch.delenv("PARALLEL_TRACKING_ZONE_STRATEGY", raising=False)
+
+        settings = Settings.from_env(autoload_dotenv=False)
+
+        assert settings.enable_parallel_chunked_tracking_pipeline is False
+        assert settings.enable_pipeline_branch_concurrency in {True, False}
+        assert settings.pipeline_frame_branch_worker_budget == 1
+        assert settings.pipeline_chunk_branch_worker_budget >= 1
+        assert settings.parallel_tracking_ground_truth_backend == "sqlite"
+        assert settings.parallel_tracking_output_mode == "summary_v2"
+        assert settings.parallel_tracking_scene_top_entities == 30
+        assert settings.parallel_tracking_scene_grid_width == 12
+        assert settings.parallel_tracking_scene_grid_height == 7
+        assert settings.parallel_tracking_scene_path_max_segments == 6
+        assert settings.parallel_tracking_chunk_duration_sec == 300
+        assert settings.parallel_tracking_overlap_sec == 15
+        assert settings.parallel_tracking_sample_fps == 10
+        assert settings.parallel_tracking_chunk_max_workers >= 1
+        assert settings.parallel_tracking_tracker_config == "botsort_reid.yaml"
+        assert settings.parallel_tracking_backend_strategy == "default"
+        assert settings.parallel_tracking_stitch_strategy == "default"
+        assert settings.parallel_tracking_zone_strategy == "grid3x3"
+
+    def test_parallel_chunked_tracking_scene_summary_settings_parse(self, monkeypatch):
+        monkeypatch.setenv("ENABLE_PIPELINE_BRANCH_CONCURRENCY", "true")
+        monkeypatch.setenv("PIPELINE_FRAME_BRANCH_WORKER_BUDGET", "1")
+        monkeypatch.setenv("PIPELINE_CHUNK_BRANCH_WORKER_BUDGET", "3")
+        monkeypatch.setenv("PARALLEL_TRACKING_GROUND_TRUTH_BACKEND", "parquet")
+        monkeypatch.setenv("PARALLEL_TRACKING_OUTPUT_MODE", "dual")
+        monkeypatch.setenv("PARALLEL_TRACKING_SCENE_TOP_ENTITIES", "24")
+        monkeypatch.setenv("PARALLEL_TRACKING_SCENE_GRID_WIDTH", "10")
+        monkeypatch.setenv("PARALLEL_TRACKING_SCENE_GRID_HEIGHT", "6")
+        monkeypatch.setenv("PARALLEL_TRACKING_SCENE_PATH_MAX_SEGMENTS", "4")
+        monkeypatch.setenv("PARALLEL_TRACKING_CHUNK_MAX_WORKERS", "5")
+        monkeypatch.setenv("PARALLEL_TRACKING_BACKEND_STRATEGY", "default")
+        monkeypatch.setenv("PARALLEL_TRACKING_STITCH_STRATEGY", "default")
+        monkeypatch.setenv("PARALLEL_TRACKING_ZONE_STRATEGY", "grid3x3")
+
+        settings = Settings.from_env(autoload_dotenv=False)
+
+        assert settings.enable_pipeline_branch_concurrency is True
+        assert settings.pipeline_frame_branch_worker_budget == 1
+        assert settings.pipeline_chunk_branch_worker_budget == 3
+        assert settings.parallel_tracking_ground_truth_backend == "parquet"
+        assert settings.parallel_tracking_output_mode == "dual"
+        assert settings.parallel_tracking_scene_top_entities == 24
+        assert settings.parallel_tracking_scene_grid_width == 10
+        assert settings.parallel_tracking_scene_grid_height == 6
+        assert settings.parallel_tracking_scene_path_max_segments == 4
+        assert settings.parallel_tracking_chunk_max_workers == 5
+
     def test_scene_ai_queue_settings_parse(self, monkeypatch):
         monkeypatch.setenv("SCENE_AI_EXECUTION_MODE", "queue")
         monkeypatch.setenv("SCENE_AI_MAX_ATTEMPTS", "7")

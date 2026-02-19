@@ -19,6 +19,20 @@ SUPPORTED_FACE_IDENTITY_MODEL_IDS = frozenset(
 )
 
 
+def _cpu_count() -> int:
+    return max(1, int(os.cpu_count() or 1))
+
+
+def _default_branch_worker_budget() -> int:
+    # Keep branch fanout conservative on smaller CPU hosts.
+    return max(1, min(2, _cpu_count() // 2))
+
+
+def _default_chunk_worker_budget() -> int:
+    # Chunk extraction is CPU/GPU intensive; cap default workers to avoid contention.
+    return max(1, min(4, _cpu_count() // 2))
+
+
 def _read_int(name: str, default: int, minimum: int) -> int:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -219,6 +233,131 @@ def _scene_understanding_settings() -> dict[str, Any]:
     }
 
 
+def _parallel_tracking_settings() -> dict[str, Any]:
+    return {
+        "enable_parallel_chunked_tracking_pipeline": _read_bool(
+            "ENABLE_PARALLEL_CHUNKED_TRACKING_PIPELINE",
+            default=True,
+        ),
+        "enable_pipeline_branch_concurrency": _read_bool(
+            "ENABLE_PIPELINE_BRANCH_CONCURRENCY",
+            default=_cpu_count() > 1,
+        ),
+        "pipeline_frame_branch_worker_budget": _read_int(
+            "PIPELINE_FRAME_BRANCH_WORKER_BUDGET",
+            default=1,
+            minimum=1,
+        ),
+        "pipeline_chunk_branch_worker_budget": _read_int(
+            "PIPELINE_CHUNK_BRANCH_WORKER_BUDGET",
+            default=_default_branch_worker_budget(),
+            minimum=1,
+        ),
+        "parallel_tracking_ground_truth_backend": _read_choice(
+            "PARALLEL_TRACKING_GROUND_TRUTH_BACKEND",
+            default="sqlite",
+            allowed={"sqlite", "parquet"},
+        ),
+        "parallel_tracking_output_mode": _read_choice(
+            "PARALLEL_TRACKING_OUTPUT_MODE",
+            default="summary_v2",
+            allowed={"legacy", "summary_v2", "dual"},
+        ),
+        "parallel_tracking_scene_top_entities": _read_int(
+            "PARALLEL_TRACKING_SCENE_TOP_ENTITIES",
+            default=30,
+            minimum=1,
+        ),
+        "parallel_tracking_scene_grid_width": _read_int(
+            "PARALLEL_TRACKING_SCENE_GRID_WIDTH",
+            default=12,
+            minimum=1,
+        ),
+        "parallel_tracking_scene_grid_height": _read_int(
+            "PARALLEL_TRACKING_SCENE_GRID_HEIGHT",
+            default=7,
+            minimum=1,
+        ),
+        "parallel_tracking_scene_path_max_segments": _read_int(
+            "PARALLEL_TRACKING_SCENE_PATH_MAX_SEGMENTS",
+            default=6,
+            minimum=1,
+        ),
+        "parallel_tracking_chunk_duration_sec": _read_int(
+            "PARALLEL_TRACKING_CHUNK_DURATION_SEC",
+            default=300,
+            minimum=30,
+        ),
+        "parallel_tracking_overlap_sec": _read_int(
+            "PARALLEL_TRACKING_OVERLAP_SEC",
+            default=15,
+            minimum=1,
+        ),
+        "parallel_tracking_sample_fps": _read_int(
+            "PARALLEL_TRACKING_SAMPLE_FPS",
+            default=10,
+            minimum=1,
+        ),
+        "parallel_tracking_chunk_max_workers": _read_int(
+            "PARALLEL_TRACKING_CHUNK_MAX_WORKERS",
+            default=_default_chunk_worker_budget(),
+            minimum=1,
+        ),
+        "parallel_tracking_detector_weights": _read_nonempty_str(
+            "PARALLEL_TRACKING_DETECTOR_WEIGHTS",
+            "yolo11n.pt",
+        ),
+        "parallel_tracking_tracker_config": _read_nonempty_str(
+            "PARALLEL_TRACKING_TRACKER_CONFIG",
+            "botsort_reid.yaml",
+        ),
+        "parallel_tracking_backend_strategy": _read_nonempty_str(
+            "PARALLEL_TRACKING_BACKEND_STRATEGY",
+            "default",
+        ),
+        "parallel_tracking_stitch_strategy": _read_nonempty_str(
+            "PARALLEL_TRACKING_STITCH_STRATEGY",
+            "default",
+        ),
+        "parallel_tracking_zone_strategy": _read_nonempty_str(
+            "PARALLEL_TRACKING_ZONE_STRATEGY",
+            "grid3x3",
+        ),
+        "parallel_tracking_confidence_threshold": _read_float(
+            "PARALLEL_TRACKING_CONFIDENCE_THRESHOLD",
+            default=0.05,
+            minimum=0.0,
+        ),
+        "parallel_tracking_min_cosine": _read_float(
+            "PARALLEL_TRACKING_MIN_COSINE",
+            default=0.30,
+            minimum=-1.0,
+        ),
+        "parallel_tracking_min_iou": _read_float(
+            "PARALLEL_TRACKING_MIN_IOU",
+            default=0.10,
+            minimum=0.0,
+        ),
+        "parallel_tracking_velocity_window": _read_int(
+            "PARALLEL_TRACKING_VELOCITY_WINDOW",
+            default=3,
+            minimum=2,
+        ),
+        "parallel_tracking_use_clip_embeddings": _read_bool(
+            "PARALLEL_TRACKING_USE_CLIP_EMBEDDINGS",
+            default=True,
+        ),
+        "parallel_tracking_clip_model_id": _read_nonempty_str(
+            "PARALLEL_TRACKING_CLIP_MODEL_ID",
+            "ViT-B-32",
+        ),
+        "parallel_tracking_clip_pretrained": _read_nonempty_str(
+            "PARALLEL_TRACKING_CLIP_PRETRAINED",
+            "openai",
+        ),
+    }
+
+
 def _corpus_settings() -> dict[str, Any]:
     return {
         "enable_corpus_pipeline": _read_bool("ENABLE_CORPUS_PIPELINE", default=True),
@@ -317,6 +456,32 @@ class Settings:
     kg_near_threshold: float
     kg_max_repair_retries: int
     kg_allowed_predicates: str
+    enable_parallel_chunked_tracking_pipeline: bool
+    enable_pipeline_branch_concurrency: bool
+    pipeline_frame_branch_worker_budget: int
+    pipeline_chunk_branch_worker_budget: int
+    parallel_tracking_ground_truth_backend: str
+    parallel_tracking_output_mode: str
+    parallel_tracking_scene_top_entities: int
+    parallel_tracking_scene_grid_width: int
+    parallel_tracking_scene_grid_height: int
+    parallel_tracking_scene_path_max_segments: int
+    parallel_tracking_chunk_duration_sec: int
+    parallel_tracking_overlap_sec: int
+    parallel_tracking_sample_fps: int
+    parallel_tracking_chunk_max_workers: int
+    parallel_tracking_detector_weights: str
+    parallel_tracking_tracker_config: str
+    parallel_tracking_backend_strategy: str
+    parallel_tracking_stitch_strategy: str
+    parallel_tracking_zone_strategy: str
+    parallel_tracking_confidence_threshold: float
+    parallel_tracking_min_cosine: float
+    parallel_tracking_min_iou: float
+    parallel_tracking_velocity_window: int
+    parallel_tracking_use_clip_embeddings: bool
+    parallel_tracking_clip_model_id: str
+    parallel_tracking_clip_pretrained: str
     enable_corpus_pipeline: bool
     enable_corpus_ingest: bool
     graph_backend: str
@@ -363,6 +528,7 @@ class Settings:
         return cls(
             **_storage_settings(default_temp),
             **_scene_understanding_settings(),
+            **_parallel_tracking_settings(),
             **_corpus_settings(),
             **_face_identity_settings(
                 enable_face_identity_pipeline=enable_face_identity_pipeline,

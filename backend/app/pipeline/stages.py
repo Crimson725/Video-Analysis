@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import TYPE_CHECKING, Any
 
-from app import analysis, scene
+from app import analysis, parallel_tracking, scene
 from app.pipeline.artifacts import collect_required_artifact_keys, verify_required_artifacts
 from app.pipeline.contracts import PipelineContext, PipelineStage, StageExecutionOutput
+
+if TYPE_CHECKING:
+    from app.pipeline.registry import PipelineStageRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class SourceUploadStage:
@@ -129,6 +135,95 @@ class ArtifactVerificationStage:
         return StageExecutionOutput(data={"required_artifact_count": len(required_keys)})
 
 
+class ParallelChunkedTrackingStage:
+    """Run the chunked tracking branch independently from keyframe extraction."""
+
+    stage_id = "parallel_chunked_tracking"
+    dependencies: tuple[str, ...] = ("source_upload", "scene_detection")
+
+    def run(self, context: PipelineContext) -> StageExecutionOutput:
+        enabled = bool(
+            getattr(context.settings, "enable_parallel_chunked_tracking_pipeline", False)
+        )
+        if not enabled:
+            payload = {
+                "enabled": False,
+                "method": "chunked_botsort_stitch_v1",
+                "output_mode": getattr(
+                    context.settings, "parallel_tracking_output_mode", "summary_v2"
+                ),
+                "backend_strategy": getattr(
+                    context.settings, "parallel_tracking_backend_strategy", "default"
+                ),
+                "stitch_strategy": getattr(
+                    context.settings, "parallel_tracking_stitch_strategy", "default"
+                ),
+                "zone_strategy": getattr(
+                    context.settings, "parallel_tracking_zone_strategy", "grid3x3"
+                ),
+                "tracks": [],
+                "scenes": [],
+                "zone_definition": None,
+                "entities": [],
+                "stats": {
+                    "chunk_count": 0,
+                    "row_count": 0,
+                    "track_count": 0,
+                    "scene_count": 0,
+                    "span_count": 0,
+                    "key_box_count": 0,
+                },
+                "artifacts": {},
+            }
+            return StageExecutionOutput(
+                data={"result_extensions": {"video_chunked_tracks": payload}}
+            )
+        try:
+            payload = parallel_tracking.run_parallel_chunked_tracking(
+                video_path=context.video_path,
+                settings=context.settings,
+                scenes=context.scenes,
+                output_dir=f"{context.local_dir}/{context.job_id}/tracking",
+            )
+        except Exception as exc:  # pragma: no cover - defensive safety path
+            logger.exception(
+                "parallel_chunked_tracking stage failed job_id=%s", context.job_id
+            )
+            payload = {
+                "enabled": False,
+                "method": "chunked_botsort_stitch_v1",
+                "output_mode": getattr(
+                    context.settings, "parallel_tracking_output_mode", "summary_v2"
+                ),
+                "backend_strategy": getattr(
+                    context.settings, "parallel_tracking_backend_strategy", "default"
+                ),
+                "stitch_strategy": getattr(
+                    context.settings, "parallel_tracking_stitch_strategy", "default"
+                ),
+                "zone_strategy": getattr(
+                    context.settings, "parallel_tracking_zone_strategy", "grid3x3"
+                ),
+                "tracks": [],
+                "scenes": [],
+                "zone_definition": None,
+                "entities": [],
+                "stats": {
+                    "chunk_count": 0,
+                    "row_count": 0,
+                    "track_count": 0,
+                    "scene_count": 0,
+                    "span_count": 0,
+                    "key_box_count": 0,
+                },
+                "artifacts": {},
+                "error": str(exc),
+            }
+        return StageExecutionOutput(
+            data={"result_extensions": {"video_chunked_tracks": payload}}
+        )
+
+
 def _resolve_video_content_type(
     upload_content_type: str | None,
     source_extension: str,
@@ -143,7 +238,7 @@ def _resolve_video_content_type(
 def build_default_registry(
     *,
     enablement: dict[str, bool] | None = None,
-) -> "PipelineStageRegistry":
+) -> PipelineStageRegistry:
     """Build default registry for modular video analysis execution."""
     from app.pipeline.registry import PipelineStageRegistry
 
@@ -155,6 +250,7 @@ def build_default_registry(
         KeyframeExtractionStage(),
         SaveOriginalFramesStage(),
         FrameAnalysisStage(),
+        ParallelChunkedTrackingStage(),
         ArtifactVerificationStage(),
     )
     for stage in stages:

@@ -16,6 +16,75 @@ _CORE_ANALYSIS_ARTIFACT_KEYS = {"json"}
 _CORE_METADATA_KEYS = {"provenance", "model_provenance", "evidence_anchors"}
 
 
+def _resolve_frame_branch_state(stage_status: str, error: str | None) -> dict[str, Any]:
+    normalized = "success"
+    if stage_status == "failed":
+        normalized = "failed"
+    elif stage_status == "skipped":
+        normalized = "disabled"
+    payload: dict[str, Any] = {"status": normalized}
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def _resolve_chunk_branch_state(
+    *,
+    stage_status: str,
+    skipped_reason: str | None,
+    stage_error: str | None,
+    chunk_payload: Any,
+) -> dict[str, Any]:
+    status = "success"
+    error = stage_error
+
+    if stage_status == "failed":
+        status = "failed"
+    elif stage_status == "skipped" and skipped_reason == "disabled":
+        status = "disabled"
+    elif isinstance(chunk_payload, dict):
+        chunk_enabled = bool(chunk_payload.get("enabled"))
+        chunk_error = chunk_payload.get("error")
+        if isinstance(chunk_error, str) and chunk_error:
+            status = "failed"
+            error = chunk_error
+        elif not chunk_enabled:
+            status = "disabled"
+
+    payload: dict[str, Any] = {"status": status}
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def _build_branch_metadata(execution: PipelineExecutionResult) -> dict[str, Any]:
+    status_by_stage = {record.stage_id: record for record in execution.stage_records}
+    metadata: dict[str, Any] = {}
+
+    frame_record = status_by_stage.get("frame_analysis")
+    if frame_record is not None:
+        metadata["frame_analysis"] = _resolve_frame_branch_state(
+            frame_record.status,
+            frame_record.error,
+        )
+
+    chunk_record = status_by_stage.get("parallel_chunked_tracking")
+    if chunk_record is not None:
+        chunk_payload = (
+            execution.stage_outputs.get("parallel_chunked_tracking", {})
+            .get("result_extensions", {})
+            .get("video_chunked_tracks")
+        )
+        metadata["chunk_tracking"] = _resolve_chunk_branch_state(
+            stage_status=chunk_record.status,
+            skipped_reason=chunk_record.skipped_reason,
+            stage_error=chunk_record.error,
+            chunk_payload=chunk_payload,
+        )
+
+    return metadata
+
+
 def _default_frame(frame_id: int) -> dict[str, Any]:
     return {
         "frame_id": frame_id,
@@ -172,11 +241,22 @@ def build_result_payload(
 ) -> dict[str, Any]:
     """Build canonical result payload from modular pipeline execution."""
     stage_order = [record.stage_id for record in execution.stage_records]
-    return {
+    payload: dict[str, Any] = {
         "job_id": job_id,
         "pipeline": build_pipeline_metadata(execution),
+        "branch_metadata": _build_branch_metadata(execution),
         "frames": aggregate_pipeline_frames(
             stage_order=stage_order,
             frame_updates_by_stage=execution.frame_updates_by_stage,
         ),
     }
+    for stage_id in stage_order:
+        stage_data = execution.stage_outputs.get(stage_id, {})
+        if not isinstance(stage_data, dict):
+            continue
+        result_extensions = stage_data.get("result_extensions")
+        if not isinstance(result_extensions, dict):
+            continue
+        for key, value in result_extensions.items():
+            payload[str(key)] = value
+    return payload
