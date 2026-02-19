@@ -142,3 +142,60 @@ def test_fusion_marks_track_ambiguous_for_conflicting_identity_votes():
     track = fused["tracks"][0]
     assert track["identity_id"] is None
     assert track["is_identity_ambiguous"] is True
+
+
+def test_fusion_preserves_person_identity_with_intermittent_face_visibility():
+    frames = [
+        _frame(
+            0,
+            track_id="person_a",
+            box=[10, 10, 110, 210],
+            faces=[
+                {
+                    "face_id": 1,
+                    "video_person_id": "video_person_42",
+                    "identity_id": "video_person_42",
+                    "match_confidence": 0.94,
+                    "coordinates": [34, 28, 72, 92],
+                }
+            ],
+            timestamp="00:00:00.000",
+        ),
+        _frame(
+            1,
+            track_id="person_b",
+            box=[12, 12, 112, 212],
+            faces=[],
+            timestamp="00:00:00.500",
+        ),
+        _frame(
+            2,
+            track_id="person_c",
+            box=[14, 13, 114, 213],
+            faces=[
+                {
+                    "face_id": 1,
+                    "video_person_id": "video_person_42",
+                    "identity_id": "video_person_42",
+                    "match_confidence": 0.92,
+                    "coordinates": [36, 30, 74, 94],
+                }
+            ],
+            timestamp="00:00:01.000",
+        ),
+    ]
+
+    fused = run_person_tracking_fusion(frame_results=frames, job_id="job-4")
+
+    assert len(fused["tracks"]) == 1
+    track = fused["tracks"][0]
+    assert track["identity_id"] == "video_person_42"
+    assert track["object_track_ids"] == ["person_a", "person_b", "person_c"]
+    assert track["is_identity_ambiguous"] is False
+
+    middle_detection = frames[1]["analysis"]["object_detection"][0]
+    assert middle_detection["person_identity_id"] == "video_person_42"
+    assert middle_detection["person_identity_source"] in {
+        "video_person_id",
+        "track_continuity",
+    }

@@ -12,7 +12,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import analysis, cleanup, jobs, scene
+from app import analysis, cleanup, jobs, scene  # noqa: F401
 from app.api import stream_upload_to_local_file
 from app.application import (
     VideoAnalysisService,

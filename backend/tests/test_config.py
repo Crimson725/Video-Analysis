@@ -142,6 +142,12 @@ class TestSettings:
         monkeypatch.setenv("FACE_IDENTITY_EMBEDDING_DIMENSION", "256")
         monkeypatch.setenv("FACE_IDENTITY_MODEL_ID", "edgeface_xs_gamma_06")
         monkeypatch.setenv("FACE_IDENTITY_WEIGHTS_PATH", "/tmp/edgeface.pt")
+        monkeypatch.setenv("FACE_IDENTITY_ARCFACE_MODEL_NAME", "buffalo_l")
+        monkeypatch.setenv(
+            "FACE_IDENTITY_ARCFACE_PROVIDER_ORDER",
+            "CoreMLExecutionProvider,CPUExecutionProvider",
+        )
+        monkeypatch.setenv("FACE_IDENTITY_ARCFACE_FALLBACK_BEHAVIOR", "cpu")
 
         settings = Settings.from_env(autoload_dotenv=False)
 
@@ -155,6 +161,12 @@ class TestSettings:
         assert settings.face_identity_embedding_dimension == 256
         assert settings.face_identity_model_id == "edgeface_xs_gamma_06"
         assert settings.face_identity_weights_path == "/tmp/edgeface.pt"
+        assert settings.face_identity_arcface_model_name == "buffalo_l"
+        assert settings.face_identity_arcface_provider_order == (
+            "CoreMLExecutionProvider",
+            "CPUExecutionProvider",
+        )
+        assert settings.face_identity_arcface_fallback_behavior == "cpu"
 
     def test_face_identity_pipeline_enabled_by_default(self, monkeypatch):
         monkeypatch.delenv("ENABLE_FACE_IDENTITY_PIPELINE", raising=False)
@@ -168,6 +180,11 @@ class TestSettings:
         monkeypatch.delenv("FACE_IDENTITY_VIDEO_SIMILARITY_THRESHOLD", raising=False)
         monkeypatch.delenv("FACE_IDENTITY_AMBIGUITY_MARGIN", raising=False)
         monkeypatch.delenv("FACE_IDENTITY_MODEL_ID", raising=False)
+        monkeypatch.delenv("FACE_IDENTITY_ARCFACE_MODEL_NAME", raising=False)
+        monkeypatch.delenv("FACE_IDENTITY_ARCFACE_PROVIDER_ORDER", raising=False)
+        monkeypatch.delenv(
+            "FACE_IDENTITY_ARCFACE_FALLBACK_BEHAVIOR", raising=False
+        )
 
         settings = Settings.from_env(autoload_dotenv=False)
 
@@ -175,6 +192,12 @@ class TestSettings:
         assert settings.face_identity_video_similarity_threshold == 0.74
         assert settings.face_identity_ambiguity_margin == 0.03
         assert settings.face_identity_model_id == "edgeface_s_gamma_05"
+        assert settings.face_identity_arcface_model_name == "buffalo_l"
+        assert settings.face_identity_arcface_provider_order == (
+            "CoreMLExecutionProvider",
+            "CPUExecutionProvider",
+        )
+        assert settings.face_identity_arcface_fallback_behavior == "cpu"
 
     def test_invalid_face_identity_model_id_fails_fast(self, monkeypatch):
         monkeypatch.setenv("ENABLE_FACE_IDENTITY_PIPELINE", "true")

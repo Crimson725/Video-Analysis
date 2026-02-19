@@ -8,10 +8,11 @@ from typing import Callable
 
 from app.pipeline.contracts import (
     PipelineContext,
+    StageExecutionOutput,
     StageExecutionRecord,
     StageFailure,
 )
-from app.pipeline.registry import PipelineStageRegistry, RegisteredStage
+from app.pipeline.registry import PipelineStageRegistry
 
 
 StageCallback = Callable[[str], None]

@@ -118,6 +118,115 @@ class FrameAnalysisStage:
         )
 
 
+class IdentityConsistencyStage:
+    """Run video-level identity consolidation and annotate frame payloads."""
+
+    stage_id = "identity_consistency"
+    dependencies: tuple[str, ...] = ("frame_analysis", "scene_detection")
+
+    def run(self, context: PipelineContext) -> StageExecutionOutput:
+        frame_results = context.frame_results
+        if not frame_results:
+            return StageExecutionOutput(
+                data={
+                    "result_extensions": {
+                        "video_face_identities": {
+                            "enabled": False,
+                            "reason": "no_frames",
+                        },
+                        "video_object_tracks": {
+                            "enabled": True,
+                            "method": "object_tracking_v1",
+                            "tracks": [],
+                        },
+                        "video_person_tracks": {
+                            "enabled": True,
+                            "method": "object_face_fusion_v1",
+                            "tracks": [],
+                        },
+                    }
+                }
+            )
+
+        tracking_frames: list[dict[str, Any]] = []
+        if bool(getattr(context.settings, "enable_face_identity_pipeline", False)):
+            try:
+                tracking_frames = scene.extract_tracking_frames(
+                    context.video_path,
+                    context.scenes,
+                    sample_fps=int(
+                        getattr(context.settings, "face_identity_sample_fps", 4)
+                    ),
+                    max_samples_per_scene=int(
+                        getattr(
+                            context.settings,
+                            "face_identity_max_samples_per_scene",
+                            120,
+                        )
+                    ),
+                )
+            except Exception as exc:  # pragma: no cover - runtime IO dependent
+                logger.warning(
+                    "Identity tracking frame extraction failed job_id=%s: %s",
+                    context.job_id,
+                    exc,
+                )
+                tracking_frames = []
+
+        if bool(getattr(context.settings, "enable_face_identity_pipeline", False)):
+            face_identity_payload = analysis.run_face_identity_pipeline(
+                keyframes=context.frames,
+                frame_results=frame_results,
+                tracking_frames=tracking_frames,
+                models=context.models,
+                settings=context.settings,
+                job_id=context.job_id,
+            )
+        else:
+            face_identity_payload = {
+                "enabled": False,
+                "model_id": getattr(
+                    context.settings,
+                    "face_identity_arcface_model_name",
+                    "buffalo_l",
+                ),
+                "backend": "disabled",
+                "provider_path": [],
+                "scene_identities": [],
+                "video_identities": [],
+            }
+
+        object_summary_payload = analysis.run_object_tracking_summary(
+            frame_results=frame_results,
+            job_id=context.job_id,
+        )
+        person_summary_payload = analysis.run_person_tracking_fusion(
+            frame_results=frame_results,
+            job_id=context.job_id,
+            ambiguity_margin=float(
+                getattr(context.settings, "face_identity_ambiguity_margin", 0.03)
+            ),
+        )
+
+        frame_updates: dict[int, dict[str, Any]] = {}
+        for frame in frame_results:
+            frame_id = int(frame.get("frame_id", 0))
+            frame_updates[frame_id] = {
+                "analysis": dict(frame.get("analysis", {})),
+            }
+
+        return StageExecutionOutput(
+            data={
+                "result_extensions": {
+                    "video_face_identities": face_identity_payload,
+                    "video_object_tracks": object_summary_payload,
+                    "video_person_tracks": person_summary_payload,
+                }
+            },
+            frame_updates=frame_updates,
+        )
+
+
 class ArtifactVerificationStage:
     """Verify persisted frame and analysis artifacts before completion."""
 
@@ -250,6 +359,7 @@ def build_default_registry(
         KeyframeExtractionStage(),
         SaveOriginalFramesStage(),
         FrameAnalysisStage(),
+        IdentityConsistencyStage(),
         ParallelChunkedTrackingStage(),
         ArtifactVerificationStage(),
     )

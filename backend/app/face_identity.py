@@ -17,9 +17,26 @@ from app.config import DEFAULT_FACE_IDENTITY_MODEL_ID
 
 logger = logging.getLogger(__name__)
 
+try:  # pragma: no cover - exercised in integration/runtime environments
+    import onnxruntime as _onnxruntime  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - optional dependency
+    _onnxruntime = None
+
+try:  # pragma: no cover - exercised in integration/runtime environments
+    from insightface.app import FaceAnalysis as _InsightFaceAnalysis  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - optional dependency
+    _InsightFaceAnalysis = None
+
 _DEFAULT_PROFILE_WEIGHTS_BY_MODEL_ID = {
     DEFAULT_FACE_IDENTITY_MODEL_ID: "edgeface_s_gamma_05.pt",
     "edgeface_xs_gamma_06": "edgeface_xs_gamma_06.pt",
+}
+
+_PROVIDER_ALIASES = {
+    "coreml": "CoreMLExecutionProvider",
+    "coremlexecutionprovider": "CoreMLExecutionProvider",
+    "cpu": "CPUExecutionProvider",
+    "cpuexecutionprovider": "CPUExecutionProvider",
 }
 
 
@@ -29,6 +46,18 @@ def _normalized_vector(values: np.ndarray) -> np.ndarray:
     if norm <= 1e-12:
         return values
     return values / norm
+
+
+def _fit_embedding_dimension(values: np.ndarray, target_dim: int) -> np.ndarray:
+    """Pad or truncate embedding vectors to deterministic fixed size."""
+    current = np.asarray(values, dtype=np.float32).reshape(-1)
+    if current.size == target_dim:
+        return current
+    if current.size > target_dim:
+        return current[:target_dim]
+    padded = np.zeros(target_dim, dtype=np.float32)
+    padded[: current.size] = current
+    return padded
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -219,6 +248,206 @@ class EdgeFaceTorchEmbedder:
 
         if self._model is None:  # pragma: no cover - guarded by constructor
             return self._fallback_embedding(crop_rgb)
+
+
+class ArcFaceRuntimeEmbedder:
+    """InsightFace ArcFace runtime embedder with CoreML->CPU fallback."""
+
+    def __init__(
+        self,
+        *,
+        model_name: str = "buffalo_l",
+        provider_order: tuple[str, ...] | list[str] | None = None,
+        fallback_behavior: str = "cpu",
+        embedding_dimension: int = 512,
+        model_root: str = "",
+    ) -> None:
+        self.model_name = (model_name or "buffalo_l").strip() or "buffalo_l"
+        self.provider_order = self._normalize_provider_order(provider_order)
+        self.fallback_behavior = (
+            fallback_behavior.strip().lower() if fallback_behavior else "cpu"
+        )
+        if self.fallback_behavior not in {"cpu", "none"}:
+            self.fallback_behavior = "cpu"
+        self.embedding_dimension = max(16, int(embedding_dimension))
+        self.model_root = model_root.strip()
+
+        self.available_providers = self._detect_available_providers()
+        self.active_provider_chain: tuple[str, ...] = tuple()
+        self.active_provider = "deterministic_fallback"
+        self.runtime_backend = "deterministic_fallback"
+        self.initialization_error: str | None = None
+        self._runtime: Any | None = None
+        self._initialize_runtime()
+
+    @staticmethod
+    def _normalize_provider_order(
+        provider_order: tuple[str, ...] | list[str] | None,
+    ) -> tuple[str, ...]:
+        if provider_order is None:
+            provider_order = ("CoreMLExecutionProvider", "CPUExecutionProvider")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for provider in provider_order:
+            candidate = str(provider or "").strip()
+            if not candidate:
+                continue
+            alias = _PROVIDER_ALIASES.get(candidate.lower(), candidate)
+            if alias in seen:
+                continue
+            seen.add(alias)
+            normalized.append(alias)
+        if not normalized:
+            return ("CPUExecutionProvider",)
+        return tuple(normalized)
+
+    @staticmethod
+    def _detect_available_providers() -> tuple[str, ...]:
+        if _onnxruntime is None:
+            return tuple()
+        try:
+            providers = _onnxruntime.get_available_providers()
+        except Exception:
+            return tuple()
+        return tuple(str(provider) for provider in providers if provider)
+
+    def _preferred_provider_chain(self) -> list[str]:
+        chain = [
+            provider
+            for provider in self.provider_order
+            if provider in self.available_providers
+        ]
+        if (
+            self.fallback_behavior == "cpu"
+            and "CPUExecutionProvider" in self.available_providers
+            and "CPUExecutionProvider" not in chain
+        ):
+            chain.append("CPUExecutionProvider")
+        if not chain and "CPUExecutionProvider" in self.available_providers:
+            chain = ["CPUExecutionProvider"]
+        return chain
+
+    def _build_attempts(self) -> list[list[str]]:
+        primary = self._preferred_provider_chain()
+        if not primary:
+            return []
+        attempts = [primary]
+        if (
+            self.fallback_behavior == "cpu"
+            and "CPUExecutionProvider" in self.available_providers
+            and primary != ["CPUExecutionProvider"]
+        ):
+            attempts.append(["CPUExecutionProvider"])
+        return attempts
+
+    def _initialize_runtime(self) -> None:
+        if _InsightFaceAnalysis is None:
+            self.initialization_error = (
+                "InsightFace is not installed; using deterministic fallback embeddings."
+            )
+            logger.warning(self.initialization_error)
+            return
+
+        attempts = self._build_attempts()
+        if not attempts:
+            self.initialization_error = (
+                "No compatible ONNX Runtime providers available for ArcFace."
+            )
+            logger.warning(self.initialization_error)
+            return
+
+        for providers in attempts:
+            try:
+                kwargs: dict[str, Any] = {
+                    "name": self.model_name,
+                    "providers": providers,
+                }
+                if self.model_root:
+                    kwargs["root"] = self.model_root
+                runtime = _InsightFaceAnalysis(**kwargs)
+                runtime.prepare(ctx_id=0, det_size=(640, 640))
+                self._runtime = runtime
+                self.active_provider_chain = tuple(providers)
+                self.active_provider = providers[0]
+                self.runtime_backend = "arcface"
+                self.initialization_error = None
+                logger.info(
+                    "ArcFace embedder initialized model=%s provider_path=%s available=%s",
+                    self.model_name,
+                    " -> ".join(self.active_provider_chain),
+                    list(self.available_providers),
+                )
+                return
+            except Exception as exc:  # pragma: no cover - runtime/provider dependent
+                self.initialization_error = str(exc)
+                logger.warning(
+                    "ArcFace runtime init failed model=%s provider_path=%s error=%s",
+                    self.model_name,
+                    " -> ".join(providers),
+                    exc,
+                )
+
+        logger.warning(
+            "ArcFace runtime unavailable; deterministic fallback embeddings enabled."
+        )
+
+    def _fallback_embedding(self, crop_rgb: np.ndarray) -> np.ndarray:
+        digest = hashlib.sha1(crop_rgb.tobytes()).digest()
+        seed = int.from_bytes(digest[:8], byteorder="big", signed=False)
+        rng = np.random.default_rng(seed)
+        vector = rng.standard_normal(self.embedding_dimension).astype(np.float32)
+        return _normalized_vector(vector)
+
+    def runtime_metadata(self) -> dict[str, Any]:
+        return {
+            "backend": self.runtime_backend,
+            "model_name": self.model_name,
+            "active_provider": self.active_provider,
+            "provider_path": list(self.active_provider_chain),
+            "available_providers": list(self.available_providers),
+            "fallback_behavior": self.fallback_behavior,
+            "initialized": self._runtime is not None,
+            "initialization_error": self.initialization_error,
+        }
+
+    def embed(self, image_bgr: np.ndarray, bbox: list[int]) -> np.ndarray:
+        """Extract one L2-normalized ArcFace embedding for a face crop."""
+        if image_bgr.size == 0 or len(bbox) != 4:
+            return np.zeros(self.embedding_dimension, dtype=np.float32)
+
+        height, width = image_bgr.shape[:2]
+        x1 = max(0, min(width - 1, int(bbox[0])))
+        y1 = max(0, min(height - 1, int(bbox[1])))
+        x2 = max(x1 + 1, min(width, int(bbox[2])))
+        y2 = max(y1 + 1, min(height, int(bbox[3])))
+        crop = image_bgr[y1:y2, x1:x2]
+        if crop.size == 0:
+            return np.zeros(self.embedding_dimension, dtype=np.float32)
+
+        crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        if self._runtime is not None:
+            try:
+                faces = self._runtime.get(crop_rgb)
+                if faces:
+                    face = faces[0]
+                    vector = getattr(face, "normed_embedding", None)
+                    if vector is None:
+                        vector = getattr(face, "embedding", None)
+                    if vector is not None:
+                        embedding = np.asarray(vector, dtype=np.float32).reshape(-1)
+                        if embedding.size > 0:
+                            fitted = _fit_embedding_dimension(
+                                embedding,
+                                self.embedding_dimension,
+                            )
+                            return _normalized_vector(fitted)
+            except Exception as exc:  # pragma: no cover - runtime dependent
+                logger.warning(
+                    "ArcFace embedding inference failed; using deterministic fallback: %s",
+                    exc,
+                )
+
+        return self._fallback_embedding(crop_rgb)
 
         try:
             resized = cv2.resize(crop_rgb, (160, 160), interpolation=cv2.INTER_LINEAR)

@@ -13,12 +13,11 @@ from pydantic import ValidationError
 from ultralytics.utils.plotting import colors as ultralytics_colors
 
 from app.face_identity import (
-    EdgeFaceTorchEmbedder,
+    ArcFaceRuntimeEmbedder,
     FaceObservation,
     aggregate_scene_identities,
     stitch_video_identities,
 )
-from app.models import select_torch_device
 from app.schemas import FrameResult
 from app.storage import (
     FrameKind,
@@ -555,6 +554,25 @@ def _extract_model_provenance(
     component: str, model: Any, threshold: float | None = None
 ) -> dict[str, Any]:
     """Build a compact model provenance entry for frame metadata."""
+    if hasattr(model, "runtime_metadata") and callable(model.runtime_metadata):
+        metadata = model.runtime_metadata()
+        model_id = (
+            metadata.get("model_name")
+            or metadata.get("model_id")
+            or getattr(model, "__class__", type(model)).__name__
+        )
+        provider_path = metadata.get("provider_path")
+        model_version = metadata.get("backend") or "unknown"
+        payload = {
+            "component": str(component),
+            "model_id": str(model_id),
+            "model_version": str(model_version),
+            "threshold": threshold,
+        }
+        if isinstance(provider_path, list):
+            payload["provider_path"] = list(provider_path)
+        return payload
+
     model_id = (
         getattr(model, "model_name", None)
         or getattr(model, "name", None)
@@ -777,6 +795,9 @@ def _build_frame_metadata(
         _extract_model_provenance(
             "face_detector", getattr(models, "face_detector", None), threshold=0.9
         ),
+        _extract_model_provenance(
+            "face_embedder", getattr(models, "face_embedder", None), threshold=None
+        ),
     ]
     for component in (
         "ocr_enricher",
@@ -892,7 +913,7 @@ def _extract_face_observations_from_keyframes(
     *,
     keyframes: list[dict[str, Any]],
     frame_results: list[dict[str, Any]],
-    embedder: EdgeFaceTorchEmbedder,
+    embedder: Any,
 ) -> list[FaceObservation]:
     """Convert analyzed keyframe face results into embedding observations."""
     keyframe_by_id = {int(frame.get("frame_id", -1)): frame for frame in keyframes}
@@ -937,7 +958,7 @@ def _extract_face_observations_from_tracking_frames(
     tracking_frames: list[dict[str, Any]],
     models: Any,
     job_id: str,
-    embedder: EdgeFaceTorchEmbedder,
+    embedder: Any,
 ) -> list[FaceObservation]:
     """Detect faces for sampled tracking frames and convert into observations."""
     observations: list[FaceObservation] = []
@@ -1031,18 +1052,26 @@ def run_face_identity_pipeline(
     job_id: str,
 ) -> dict[str, Any]:
     """Run scene-local and video-global face identity aggregation."""
-    device = select_torch_device(settings.face_identity_backend)
+    embedder = getattr(models, "face_embedder", None)
+    if embedder is None or not hasattr(embedder, "embed"):
+        embedder = ArcFaceRuntimeEmbedder(
+            model_name=settings.face_identity_arcface_model_name,
+            provider_order=settings.face_identity_arcface_provider_order,
+            fallback_behavior=settings.face_identity_arcface_fallback_behavior,
+            embedding_dimension=settings.face_identity_embedding_dimension,
+        )
+
+    runtime_metadata: dict[str, Any] = {}
+    if hasattr(embedder, "runtime_metadata") and callable(embedder.runtime_metadata):
+        metadata_raw = embedder.runtime_metadata()
+        if isinstance(metadata_raw, dict):
+            runtime_metadata = dict(metadata_raw)
+    provider_path = runtime_metadata.get("provider_path", [])
     logger.info(
-        "Face identity pipeline starting model_profile=%s backend_preference=%s resolved_backend=%s",
-        settings.face_identity_model_id,
-        settings.face_identity_backend,
-        device.type,
-    )
-    embedder = EdgeFaceTorchEmbedder(
-        device=device,
-        model_id=settings.face_identity_model_id,
-        embedding_dimension=settings.face_identity_embedding_dimension,
-        weights_path=settings.face_identity_weights_path,
+        "Face identity pipeline starting model=%s backend=%s provider_path=%s",
+        settings.face_identity_arcface_model_name,
+        runtime_metadata.get("backend", "arcface"),
+        provider_path,
     )
 
     observations = _extract_face_observations_from_keyframes(
@@ -1075,7 +1104,7 @@ def run_face_identity_pipeline(
         frame_results=frame_results,
         assignments=assignments,
         scene_to_video=scene_to_video,
-        model_id=settings.face_identity_model_id,
+        model_id=settings.face_identity_arcface_model_name,
     )
 
     scene_summary: list[dict[str, Any]] = []
@@ -1097,8 +1126,10 @@ def run_face_identity_pipeline(
 
     return {
         "enabled": True,
-        "model_id": settings.face_identity_model_id,
-        "backend": device.type,
+        "model_id": settings.face_identity_arcface_model_name,
+        "backend": runtime_metadata.get("backend", "arcface"),
+        "provider_path": provider_path if isinstance(provider_path, list) else [],
+        "active_provider": runtime_metadata.get("active_provider"),
         "scene_identities": scene_summary,
         "video_identities": video_summary,
     }
@@ -1205,13 +1236,81 @@ def _coerce_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _object_track_continuity_score(
+    *,
+    group: dict[str, Any],
+    slot: dict[str, Any],
+) -> float:
+    group_first_frame = int(group.get("first_frame_id") or 0)
+    group_last_frame = int(group.get("last_frame_id") or 0)
+    slot_first_frame = int(slot.get("first_frame_id") or 0)
+    slot_last_frame = int(slot.get("last_frame_id") or 0)
+
+    group_first_box = _coerce_int_box(group.get("first_box"))
+    group_last_box = _coerce_int_box(group.get("last_box"))
+    slot_first_box = _coerce_int_box(slot.get("first_box"))
+    slot_last_box = _coerce_int_box(slot.get("last_box"))
+    if (
+        group_first_box is None
+        or group_last_box is None
+        or slot_first_box is None
+        or slot_last_box is None
+    ):
+        return 0.0
+
+    frame_gap = 0
+    iou = 0.0
+    if slot_first_frame >= group_last_frame:
+        frame_gap = slot_first_frame - group_last_frame
+        iou = _box_iou(slot_first_box, group_last_box)
+    elif group_first_frame >= slot_last_frame:
+        frame_gap = group_first_frame - slot_last_frame
+        iou = _box_iou(group_first_box, slot_last_box)
+    else:
+        frame_gap = 0
+        iou = max(
+            _box_iou(slot_first_box, group_first_box),
+            _box_iou(slot_last_box, group_last_box),
+        )
+
+    group_timestamps = group.get("timestamps", [])
+    slot_timestamps = slot.get("timestamps", [])
+    time_gap = 0.0
+    if group_timestamps and slot_timestamps:
+        group_first_t = float(group_timestamps[0])
+        group_last_t = float(group_timestamps[-1])
+        slot_first_t = float(slot_timestamps[0])
+        slot_last_t = float(slot_timestamps[-1])
+        if slot_first_t >= group_last_t:
+            time_gap = slot_first_t - group_last_t
+        elif group_first_t >= slot_last_t:
+            time_gap = group_first_t - slot_last_t
+        else:
+            time_gap = 0.0
+
+    if frame_gap > 45 and time_gap > 4.5:
+        return 0.0
+
+    group_area = _box_area(group_last_box)
+    slot_area = _box_area(slot_first_box)
+    if group_area <= 0 or slot_area <= 0:
+        size_score = 0.0
+    else:
+        size_score = min(group_area, slot_area) / max(group_area, slot_area)
+
+    temporal_score = max(0.0, 1.0 - min(1.0, time_gap / 4.5))
+    return (0.55 * iou) + (0.25 * temporal_score) + (0.20 * size_score)
+
+
 def run_object_tracking_summary(
     *,
     frame_results: list[dict[str, Any]],
     job_id: str,
     max_evidence_per_track: int = 25,
+    merge_threshold: float = 0.42,
+    ambiguity_margin: float = 0.04,
 ) -> dict[str, Any]:
-    """Aggregate per-frame detections into deterministic job-level object tracks."""
+    """Aggregate per-frame detections into deterministic canonical object tracks."""
     evidence_limit = max(1, int(max_evidence_per_track))
     ordered_frames = sorted(
         frame_results, key=lambda item: int(item.get("frame_id", 0))
@@ -1270,13 +1369,9 @@ def run_object_tracking_summary(
                 }
             )
 
-    tracks: list[dict[str, Any]] = []
+    slot_records: list[dict[str, Any]] = []
     for slot_key in sorted(track_slots):
         slot = track_slots[slot_key]
-        confidences = [float(value) for value in slot["confidences"]]
-        frame_ids = sorted({int(value) for value in slot["frame_ids"]})
-        timestamps = sorted(float(value) for value in slot["timestamps"])
-        object_track_id = _deterministic_object_track_id(job_id, slot_key)
         evidence = sorted(
             slot["evidence"],
             key=lambda item: (
@@ -1284,21 +1379,182 @@ def run_object_tracking_summary(
                 int(item.get("detection_index", 0)),
                 str(item.get("track_id", "")),
             ),
+        )
+        frame_ids = sorted({int(value) for value in slot["frame_ids"]})
+        timestamps = sorted(float(value) for value in slot["timestamps"])
+        first_box = next(
+            (item.get("box") for item in evidence if _coerce_int_box(item.get("box"))),
+            None,
+        )
+        last_box = next(
+            (
+                item.get("box")
+                for item in reversed(evidence)
+                if _coerce_int_box(item.get("box"))
+            ),
+            None,
+        )
+        slot_records.append(
+            {
+                "slot_key": slot_key,
+                "label": str(slot["label"]),
+                "label_key": str(slot["label"]).lower(),
+                "source_track_id": str(slot["source_track_id"]),
+                "frame_ids": frame_ids,
+                "timestamps": timestamps,
+                "confidences": [float(value) for value in slot["confidences"]],
+                "evidence": evidence,
+                "detections": list(slot["detections"]),
+                "first_frame_id": frame_ids[0] if frame_ids else None,
+                "last_frame_id": frame_ids[-1] if frame_ids else None,
+                "first_box": first_box,
+                "last_box": last_box,
+            }
+        )
+
+    canonical_groups: list[dict[str, Any]] = []
+    resolved_threshold = max(0.0, min(1.0, float(merge_threshold)))
+    resolved_ambiguity = max(0.0, float(ambiguity_margin))
+    for slot in sorted(
+        slot_records,
+        key=lambda item: (
+            int(item["first_frame_id"] or 0),
+            str(item["label_key"]),
+            str(item["source_track_id"]),
+        ),
+    ):
+        candidates: list[tuple[float, int]] = []
+        for group_index, group in enumerate(canonical_groups):
+            if str(group["label_key"]) != str(slot["label_key"]):
+                continue
+            score = _object_track_continuity_score(group=group, slot=slot)
+            if score <= 0.0:
+                continue
+            candidates.append((score, group_index))
+        candidates.sort(key=lambda item: (-float(item[0]), int(item[1])))
+
+        selected_group_index: int | None = None
+        selected_score = 0.0
+        is_slot_ambiguous = False
+        if candidates:
+            selected_score, selected_group_index = candidates[0]
+            second_score = candidates[1][0] if len(candidates) > 1 else 0.0
+            if selected_score < resolved_threshold:
+                selected_group_index = None
+            elif (
+                len(candidates) > 1
+                and (selected_score - second_score) <= resolved_ambiguity
+            ):
+                selected_group_index = None
+                is_slot_ambiguous = True
+
+        if selected_group_index is None:
+            canonical_groups.append(
+                {
+                    "label": slot["label"],
+                    "label_key": slot["label_key"],
+                    "source_track_ids": [slot["source_track_id"]],
+                    "frame_ids": list(slot["frame_ids"]),
+                    "timestamps": list(slot["timestamps"]),
+                    "confidences": list(slot["confidences"]),
+                    "evidence": list(slot["evidence"]),
+                    "detections": list(slot["detections"]),
+                    "first_frame_id": slot["first_frame_id"],
+                    "last_frame_id": slot["last_frame_id"],
+                    "first_box": slot["first_box"],
+                    "last_box": slot["last_box"],
+                    "merge_confidence_values": [1.0],
+                    "is_identity_ambiguous": bool(is_slot_ambiguous),
+                }
+            )
+            continue
+
+        group = canonical_groups[selected_group_index]
+        group["source_track_ids"].append(slot["source_track_id"])
+        group["frame_ids"].extend(slot["frame_ids"])
+        group["timestamps"].extend(slot["timestamps"])
+        group["confidences"].extend(slot["confidences"])
+        group["evidence"].extend(slot["evidence"])
+        group["detections"].extend(slot["detections"])
+        if (
+            group["first_frame_id"] is None
+            or (
+                slot["first_frame_id"] is not None
+                and int(slot["first_frame_id"]) < int(group["first_frame_id"])
+            )
+        ):
+            group["first_frame_id"] = slot["first_frame_id"]
+            group["first_box"] = slot["first_box"]
+        if (
+            group["last_frame_id"] is None
+            or (
+                slot["last_frame_id"] is not None
+                and int(slot["last_frame_id"]) > int(group["last_frame_id"])
+            )
+        ):
+            group["last_frame_id"] = slot["last_frame_id"]
+            group["last_box"] = slot["last_box"]
+        group["merge_confidence_values"].append(round(float(selected_score), 4))
+
+    tracks: list[dict[str, Any]] = []
+    for group in sorted(
+        canonical_groups,
+        key=lambda item: (
+            int(item.get("first_frame_id") or 0),
+            str(item.get("label_key")),
+            sorted(set(str(value) for value in item.get("source_track_ids", []))),
+        ),
+    ):
+        source_track_ids = sorted(
+            set(str(track_id) for track_id in group.get("source_track_ids", []))
+        )
+        confidences = [float(value) for value in group.get("confidences", [])]
+        frame_ids = sorted(set(int(value) for value in group.get("frame_ids", [])))
+        timestamps = sorted(float(value) for value in group.get("timestamps", []))
+        stable_key = f"{group['label_key']}::{','.join(source_track_ids)}"
+        object_track_id = _deterministic_object_track_id(job_id, stable_key)
+        merge_confidences = [
+            float(value) for value in group.get("merge_confidence_values", []) if value
+        ]
+        identity_confidence: float | None = None
+        if merge_confidences:
+            identity_confidence = round(
+                sum(merge_confidences) / len(merge_confidences),
+                4,
+            )
+
+        evidence = sorted(
+            group.get("evidence", []),
+            key=lambda item: (
+                int(item.get("frame_id", 0)),
+                int(item.get("detection_index", 0)),
+                str(item.get("track_id", "")),
+            ),
         )[:evidence_limit]
 
-        for detection in slot["detections"]:
+        for detection in group.get("detections", []):
             detection["object_track_id"] = object_track_id
+            detection["object_identity_confidence"] = identity_confidence
+            detection["object_identity_is_ambiguous"] = bool(
+                group.get("is_identity_ambiguous", False)
+            )
 
         sample_count = len(confidences)
         mean_conf = (sum(confidences) / sample_count) if sample_count else 0.0
         max_conf = max(confidences) if sample_count else 0.0
         min_conf = min(confidences) if sample_count else 0.0
+        source_track_id = source_track_ids[0] if source_track_ids else ""
 
         tracks.append(
             {
                 "object_track_id": object_track_id,
-                "label": str(slot["label"]),
-                "source_track_id": str(slot["source_track_id"]),
+                "label": str(group.get("label", "unknown")),
+                "source_track_id": source_track_id,
+                "source_track_ids": source_track_ids,
+                "identity_confidence": identity_confidence,
+                "is_identity_ambiguous": bool(
+                    group.get("is_identity_ambiguous", False)
+                ),
                 "confidence": {
                     "mean": round(mean_conf, 4),
                     "max": round(max_conf, 4),
@@ -1343,6 +1599,7 @@ def _new_person_track_slot(track_id: str) -> dict[str, Any]:
         "identity_votes": {},
         "identity_source_votes": {},
         "evidence": [],
+        "observations": [],
     }
 
 
@@ -1377,6 +1634,13 @@ def _collect_person_detections(
         slot = track_slots.setdefault(track_id, _new_person_track_slot(track_id))
         slot["frame_ids"].append(frame_id)
         slot["timestamps"].append(timestamp_sec)
+        slot["observations"].append(
+            {
+                "frame_id": frame_id,
+                "timestamp_sec": timestamp_sec,
+                "box": list(box),
+            }
+        )
 
     return person_detections
 
@@ -1443,6 +1707,8 @@ def _apply_identity_vote(
 
 def _resolve_track_identity(
     slot: dict[str, Any],
+    *,
+    ambiguity_margin: float,
 ) -> tuple[str | None, str | None, float | None, bool]:
     votes: dict[str, dict[str, Any]] = slot["identity_votes"]
     resolved_identity: str | None = None
@@ -1472,7 +1738,8 @@ def _resolve_track_identity(
         second_count = int(second_stats["count"])
         second_avg_conf = float(second_stats["confidence_sum"]) / max(1, second_count)
         is_ambiguous = (
-            second_count >= top_count and second_avg_conf >= top_avg_conf - 0.05
+            second_count >= max(1, top_count - 1)
+            and (top_avg_conf - second_avg_conf) <= max(0.0, ambiguity_margin)
         )
         if second_identity == top_identity:
             is_ambiguous = False
@@ -1493,6 +1760,8 @@ def _resolve_track_identity(
 
 def _normalize_track_slots(
     track_slots: dict[str, dict[str, Any]],
+    *,
+    ambiguity_margin: float,
 ) -> list[dict[str, Any]]:
     normalized_tracks: list[dict[str, Any]] = []
     for track_id in sorted(track_slots):
@@ -1502,7 +1771,22 @@ def _normalize_track_slots(
             resolved_source,
             resolved_confidence,
             is_ambiguous,
-        ) = _resolve_track_identity(slot)
+        ) = _resolve_track_identity(slot, ambiguity_margin=ambiguity_margin)
+        observations = sorted(
+            [
+                obs
+                for obs in slot.get("observations", [])
+                if isinstance(obs, dict)
+                and isinstance(obs.get("box"), list)
+                and len(obs.get("box")) == 4
+            ],
+            key=lambda item: (
+                int(item.get("frame_id", 0)),
+                float(item.get("timestamp_sec", 0.0)),
+            ),
+        )
+        first_box = observations[0]["box"] if observations else None
+        last_box = observations[-1]["box"] if observations else None
 
         normalized_tracks.append(
             {
@@ -1515,6 +1799,9 @@ def _normalize_track_slots(
                 "identity_source": resolved_source,
                 "identity_confidence": resolved_confidence,
                 "is_identity_ambiguous": is_ambiguous,
+                "first_box": first_box,
+                "last_box": last_box,
+                "observations": observations,
                 "evidence": sorted(
                     slot["evidence"],
                     key=lambda item: (
@@ -1526,6 +1813,154 @@ def _normalize_track_slots(
             }
         )
     return normalized_tracks
+
+
+def _person_track_continuity_score(
+    *,
+    source_track: dict[str, Any],
+    candidate_track: dict[str, Any],
+) -> float:
+    source_frame_ids = source_track.get("frame_ids", [])
+    candidate_frame_ids = candidate_track.get("frame_ids", [])
+    if not source_frame_ids or not candidate_frame_ids:
+        return 0.0
+    source_first = int(source_frame_ids[0])
+    source_last = int(source_frame_ids[-1])
+    candidate_first = int(candidate_frame_ids[0])
+    candidate_last = int(candidate_frame_ids[-1])
+    source_first_box = _coerce_int_box(source_track.get("first_box"))
+    source_last_box = _coerce_int_box(source_track.get("last_box"))
+    candidate_first_box = _coerce_int_box(candidate_track.get("first_box"))
+    candidate_last_box = _coerce_int_box(candidate_track.get("last_box"))
+    if (
+        source_first_box is None
+        or source_last_box is None
+        or candidate_first_box is None
+        or candidate_last_box is None
+    ):
+        return 0.0
+
+    frame_gap = 0
+    iou = 0.0
+    if source_first >= candidate_last:
+        frame_gap = source_first - candidate_last
+        iou = _box_iou(source_first_box, candidate_last_box)
+    elif candidate_first >= source_last:
+        frame_gap = candidate_first - source_last
+        iou = _box_iou(candidate_first_box, source_last_box)
+    else:
+        frame_gap = 0
+        iou = max(
+            _box_iou(source_first_box, candidate_first_box),
+            _box_iou(source_last_box, candidate_last_box),
+        )
+
+    time_gap = 0.0
+    source_timestamps = source_track.get("timestamps", [])
+    candidate_timestamps = candidate_track.get("timestamps", [])
+    if source_timestamps and candidate_timestamps:
+        source_start = float(source_timestamps[0])
+        source_end = float(source_timestamps[-1])
+        candidate_start = float(candidate_timestamps[0])
+        candidate_end = float(candidate_timestamps[-1])
+        if source_start >= candidate_end:
+            time_gap = source_start - candidate_end
+        elif candidate_start >= source_end:
+            time_gap = candidate_start - source_end
+        else:
+            time_gap = 0.0
+
+    if frame_gap > 30 and time_gap > 3.5:
+        return 0.0
+    temporal_score = max(0.0, 1.0 - min(1.0, time_gap / 3.5))
+    return (0.7 * iou) + (0.3 * temporal_score)
+
+
+def _link_unresolved_tracks_by_continuity(
+    normalized_tracks: list[dict[str, Any]],
+    *,
+    ambiguity_margin: float,
+) -> None:
+    resolved_tracks = [
+        track for track in normalized_tracks if str(track.get("identity_id") or "").strip()
+    ]
+
+    for track in sorted(
+        normalized_tracks,
+        key=lambda item: (
+            int(item.get("frame_ids", [0])[0]) if item.get("frame_ids") else 0,
+            str(item.get("track_id", "")),
+        ),
+    ):
+        if str(track.get("identity_id") or "").strip():
+            continue
+
+        source_frame_ids = track.get("frame_ids", [])
+        source_first_frame = (
+            int(source_frame_ids[0]) if isinstance(source_frame_ids, list) and source_frame_ids else 0
+        )
+        source_last_frame = (
+            int(source_frame_ids[-1]) if isinstance(source_frame_ids, list) and source_frame_ids else source_first_frame
+        )
+        preceding_candidates = [
+            candidate
+            for candidate in resolved_tracks
+            if candidate.get("frame_ids")
+            and int(candidate["frame_ids"][-1]) <= source_first_frame
+        ]
+        following_candidates = [
+            candidate
+            for candidate in resolved_tracks
+            if candidate.get("frame_ids")
+            and int(candidate["frame_ids"][0]) >= source_last_frame
+        ]
+        if preceding_candidates:
+            candidate_pool = preceding_candidates
+        elif following_candidates:
+            candidate_pool = following_candidates
+        else:
+            candidate_pool = resolved_tracks
+
+        candidates: list[tuple[float, dict[str, Any]]] = []
+        for candidate in candidate_pool:
+            candidate_identity = str(candidate.get("identity_id") or "").strip()
+            if not candidate_identity:
+                continue
+            score = _person_track_continuity_score(
+                source_track=track,
+                candidate_track=candidate,
+            )
+            if score <= 0.0:
+                continue
+            candidates.append((score, candidate))
+
+        if not candidates:
+            continue
+
+        candidates.sort(
+            key=lambda item: (
+                -float(item[0]),
+                str(item[1].get("identity_id") or ""),
+                str(item[1].get("track_id") or ""),
+            )
+        )
+        best_score, best_candidate = candidates[0]
+        second_score = candidates[1][0] if len(candidates) > 1 else 0.0
+        if best_score < 0.45:
+            continue
+        if len(candidates) > 1 and (best_score - second_score) <= ambiguity_margin:
+            track["is_identity_ambiguous"] = True
+            continue
+
+        inherited_conf = _coerce_float(best_candidate.get("identity_confidence"), 0.0)
+        continuity_confidence = round(
+            min(1.0, (0.5 * best_score) + (0.5 * inherited_conf)),
+            4,
+        )
+        track["identity_id"] = best_candidate.get("identity_id")
+        track["identity_source"] = "track_continuity"
+        track["identity_confidence"] = continuity_confidence
+        resolved_tracks.append(track)
 
 
 def _build_fused_groups(
@@ -1657,6 +2092,9 @@ def _annotate_fused_person_tracks(
             detection["person_identity_id"] = resolved["identity_id"]
             detection["person_identity_source"] = resolved["identity_source"]
             detection["person_identity_confidence"] = resolved["identity_confidence"]
+            detection["person_identity_is_ambiguous"] = bool(
+                resolved.get("is_identity_ambiguous", False)
+            )
             detection.pop("person_identity_candidate", None)
 
 
@@ -1664,8 +2102,10 @@ def run_person_tracking_fusion(
     *,
     frame_results: list[dict[str, Any]],
     job_id: str,
+    ambiguity_margin: float = 0.03,
 ) -> dict[str, Any]:
     """Fuse person object tracks with face identity evidence into stable video tracks."""
+    resolved_ambiguity_margin = max(0.0, float(ambiguity_margin))
     track_slots: dict[str, dict[str, Any]] = {}
     ordered_frames = sorted(
         frame_results, key=lambda item: int(item.get("frame_id", 0))
@@ -1722,7 +2162,14 @@ def run_person_tracking_fusion(
                 association_confidence=association_confidence,
             )
 
-    normalized_tracks = _normalize_track_slots(track_slots)
+    normalized_tracks = _normalize_track_slots(
+        track_slots,
+        ambiguity_margin=resolved_ambiguity_margin,
+    )
+    _link_unresolved_tracks_by_continuity(
+        normalized_tracks,
+        ambiguity_margin=resolved_ambiguity_margin,
+    )
     fused_groups = _build_fused_groups(normalized_tracks)
     fused_tracks, track_lookup = _build_fused_tracks(
         fused_groups=fused_groups,

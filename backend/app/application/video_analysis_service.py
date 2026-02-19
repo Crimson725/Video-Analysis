@@ -270,6 +270,15 @@ def materialize_signed_result_urls(
     raw_chunked_tracks = result_payload.get("video_chunked_tracks")
     if isinstance(raw_chunked_tracks, dict):
         payload["video_chunked_tracks"] = dict(raw_chunked_tracks)
+    raw_face_identities = result_payload.get("video_face_identities")
+    if isinstance(raw_face_identities, dict):
+        payload["video_face_identities"] = dict(raw_face_identities)
+    raw_object_tracks = result_payload.get("video_object_tracks")
+    if isinstance(raw_object_tracks, dict):
+        payload["video_object_tracks"] = dict(raw_object_tracks)
+    raw_person_tracks = result_payload.get("video_person_tracks")
+    if isinstance(raw_person_tracks, dict):
+        payload["video_person_tracks"] = dict(raw_person_tracks)
 
     raw_frames = result_payload.get("frames", [])
     if not isinstance(raw_frames, list):

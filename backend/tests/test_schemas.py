@@ -104,17 +104,23 @@ class TestDetectionItem:
             confidence=0.93,
             box=[10, 20, 30, 40],
             object_track_id="object_track_abc",
+            object_identity_confidence=0.82,
+            object_identity_is_ambiguous=False,
             person_track_id="person_track_123",
             person_identity_id="video_person_1",
             person_identity_source="video_person_id",
             person_identity_confidence=0.91,
+            person_identity_is_ambiguous=False,
         )
 
         assert item.object_track_id == "object_track_abc"
+        assert item.object_identity_confidence == pytest.approx(0.82)
+        assert item.object_identity_is_ambiguous is False
         assert item.person_track_id == "person_track_123"
         assert item.person_identity_id == "video_person_1"
         assert item.person_identity_source == "video_person_id"
         assert item.person_identity_confidence == pytest.approx(0.91)
+        assert item.person_identity_is_ambiguous is False
 
 
 class TestFaceItem:
@@ -245,7 +251,40 @@ class TestJobResult:
             "mode": None,
         }
         assert payload["branch_metadata"] is None
+        assert payload["video_face_identities"] is None
+        assert payload["video_object_tracks"] is None
+        assert payload["video_person_tracks"] is None
         assert payload["video_chunked_tracks"] is None
+
+    def test_job_result_accepts_identity_tracking_payloads(self):
+        result = JobResult(
+            job_id="abc-123",
+            frames=[],
+            video_face_identities={
+                "enabled": True,
+                "model_id": "buffalo_l",
+                "backend": "arcface",
+                "provider_path": ["CoreMLExecutionProvider", "CPUExecutionProvider"],
+                "active_provider": "CoreMLExecutionProvider",
+                "scene_identities": [],
+                "video_identities": [],
+            },
+            video_object_tracks={
+                "enabled": True,
+                "method": "object_tracking_v1",
+                "tracks": [],
+            },
+            video_person_tracks={
+                "enabled": True,
+                "method": "object_face_fusion_v1",
+                "tracks": [],
+            },
+        )
+
+        payload = result.model_dump()
+        assert payload["video_face_identities"]["model_id"] == "buffalo_l"
+        assert payload["video_object_tracks"]["method"] == "object_tracking_v1"
+        assert payload["video_person_tracks"]["method"] == "object_face_fusion_v1"
 
     def test_job_result_accepts_video_level_chunked_tracking_payload(self):
         result = JobResult(

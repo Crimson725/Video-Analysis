@@ -122,6 +122,12 @@ def _merge_analysis(
 
     for key, value in source.items():
         if key in _CORE_ANALYSIS_KEYS:
+            if stage_id == "identity_consistency" and key in {
+                "object_detection",
+                "face_recognition",
+            }:
+                target[key] = value
+                continue
             if key not in target or target.get(key) in (None, "", [], {}):
                 target[key] = value
                 continue

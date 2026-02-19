@@ -38,9 +38,10 @@ uv run python run.py
 1. source upload to R2 and source verification
 2. scene detection + keyframe extraction
 3. per-keyframe CV analysis (segmentation, detection, face, enrichment)
-4. artifact verification and job completion
+4. identity consistency post-pass (face identities, person/object canonical tracks)
+5. artifact verification and job completion
 
-The runtime pipeline stops after CV outputs. It does not dispatch queue worker tasks and does not build corpus artifacts.
+The runtime pipeline does not dispatch queue worker tasks and does not build corpus artifacts.
 
 ## Cloudflare R2 Configuration
 
@@ -94,8 +95,11 @@ The ML stack is **PyTorch-first** for in-repo pipeline execution and does not re
 
 - **ultralytics** (YOLO) — object detection and instance segmentation
 - **facenet-pytorch** (MTCNN) — face detection
+- **insightface + ONNX Runtime** — ArcFace (`buffalo_l`) face embeddings
 - **scenedetect** — video scene boundary detection
 - **opencv-python** — frame I/O and drawing
+
+See [`/Users/crimson2049/Video Analysis/backend/docs/arcface-identity-rollout.md`](/Users/crimson2049/Video%20Analysis/backend/docs/arcface-identity-rollout.md) for ArcFace asset/setup, tuning, and rollback guidance.
 
 ## GPU
 

@@ -3,7 +3,7 @@ name = "video-analysis-backend"
 version = "0.1.0"
 description = "Python FastAPI backend for video analysis (scene detection, segmentation, object detection, face recognition)"
 readme = "README.md"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.11"
 dependencies = [
     "ultralytics>=8.3.0",
     "facenet-pytorch",
@@ -17,6 +17,8 @@ dependencies = [
     "pillow>=12.1.0",
     "torch>=2.10.0",
     "torchvision>=0.25.0",
+    "insightface>=0.7.3; python_version < '3.13'",
+    "onnxruntime>=1.17.0",
     "boto3>=1.34.0",
     "botocore>=1.34.0",
     "langchain>=0.3.0",
@@ -27,6 +29,7 @@ dependencies = [
     "psycopg[binary]>=3.2.6",
     "spacy>=3.7.0",
     "lap>=0.5.12",
+    "open-clip-torch>=3.2.0",
 ]
 
 [project.optional-dependencies]

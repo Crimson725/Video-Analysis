@@ -30,10 +30,17 @@ def _clear_jobs():
 @pytest.fixture()
 def mock_models():
     """Return an object with `.detector`, `.segmenter`, `.face_detector` MagicMock attributes."""
+    face_embedder = MagicMock(name="face_embedder")
+    face_embedder.runtime_metadata.return_value = {
+        "backend": "arcface",
+        "model_name": "buffalo_l",
+        "provider_path": ["CPUExecutionProvider"],
+    }
     models = SimpleNamespace(
         detector=MagicMock(name="detector"),
         segmenter=MagicMock(name="segmenter"),
         face_detector=MagicMock(name="face_detector"),
+        face_embedder=face_embedder,
     )
     return models
 

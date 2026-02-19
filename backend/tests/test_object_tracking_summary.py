@@ -109,3 +109,83 @@ def test_object_tracking_summary_is_deterministic_for_identical_inputs():
     second = run_object_tracking_summary(frame_results=deepcopy(frames), job_id="job-3")
 
     assert first == second
+
+
+def test_object_tracking_summary_keeps_same_canonical_id_across_chunk_boundary():
+    frames = [
+        _frame(
+            299,
+            "00:04:59.000",
+            [
+                {
+                    "track_id": "car_chunk0_3",
+                    "label": "car",
+                    "confidence": 0.92,
+                    "box": [100, 120, 220, 260],
+                }
+            ],
+        ),
+        _frame(
+            300,
+            "00:05:00.000",
+            [
+                {
+                    "track_id": "car_chunk1_1",
+                    "label": "car",
+                    "confidence": 0.90,
+                    "box": [104, 122, 224, 262],
+                }
+            ],
+        ),
+    ]
+
+    summary = run_object_tracking_summary(frame_results=frames, job_id="job-boundary")
+
+    assert len(summary["tracks"]) == 1
+    track = summary["tracks"][0]
+    assert track["source_track_ids"] == ["car_chunk0_3", "car_chunk1_1"]
+    assert track["is_identity_ambiguous"] is False
+    assert frames[0]["analysis"]["object_detection"][0]["object_track_id"] == track[
+        "object_track_id"
+    ]
+    assert frames[1]["analysis"]["object_detection"][0]["object_track_id"] == track[
+        "object_track_id"
+    ]
+
+
+def test_object_tracking_summary_keeps_same_id_after_short_occlusion_gap():
+    frames = [
+        _frame(
+            10,
+            "00:00:10.000",
+            [
+                {
+                    "track_id": "person_a",
+                    "label": "person",
+                    "confidence": 0.89,
+                    "box": [40, 30, 120, 220],
+                }
+            ],
+        ),
+        _frame(11, "00:00:11.000", []),
+        _frame(
+            12,
+            "00:00:12.000",
+            [
+                {
+                    "track_id": "person_b",
+                    "label": "person",
+                    "confidence": 0.91,
+                    "box": [43, 32, 123, 222],
+                }
+            ],
+        ),
+    ]
+
+    summary = run_object_tracking_summary(frame_results=frames, job_id="job-occlusion")
+
+    assert len(summary["tracks"]) == 1
+    track = summary["tracks"][0]
+    assert track["source_track_ids"] == ["person_a", "person_b"]
+    assert track["identity_confidence"] is not None
+    assert track["identity_confidence"] >= 0.8

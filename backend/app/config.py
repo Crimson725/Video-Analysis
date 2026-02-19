@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 DEFAULT_FACE_IDENTITY_MODEL_ID = "edgeface_s_gamma_05"
+DEFAULT_ARCFACE_MODEL_NAME = "buffalo_l"
+DEFAULT_ARCFACE_PROVIDER_ORDER = (
+    "CoreMLExecutionProvider",
+    "CPUExecutionProvider",
+)
 DEFAULT_PGVECTOR_DSN = (
     "postgresql://video_analysis:video_analysis@127.0.0.1:5433/video_analysis"
 )
@@ -84,6 +89,20 @@ def _read_str(name: str, default: str = "") -> str:
 def _read_nonempty_str(name: str, default: str) -> str:
     value = _read_str(name, default)
     return value or default
+
+
+def _read_provider_order(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    items = [
+        item.strip()
+        for item in raw.split(",")
+        if item is not None and item.strip() != ""
+    ]
+    if not items:
+        return default
+    return tuple(items)
 
 
 def _read_scene_ai_queue_dsn() -> str:
@@ -237,7 +256,7 @@ def _parallel_tracking_settings() -> dict[str, Any]:
     return {
         "enable_parallel_chunked_tracking_pipeline": _read_bool(
             "ENABLE_PARALLEL_CHUNKED_TRACKING_PIPELINE",
-            default=True,
+            default=False,
         ),
         "enable_pipeline_branch_concurrency": _read_bool(
             "ENABLE_PIPELINE_BRANCH_CONCURRENCY",
@@ -425,6 +444,19 @@ def _face_identity_settings(
         ),
         "face_identity_model_id": face_identity_model_id,
         "face_identity_weights_path": _read_str("FACE_IDENTITY_WEIGHTS_PATH"),
+        "face_identity_arcface_model_name": _read_nonempty_str(
+            "FACE_IDENTITY_ARCFACE_MODEL_NAME",
+            DEFAULT_ARCFACE_MODEL_NAME,
+        ),
+        "face_identity_arcface_provider_order": _read_provider_order(
+            "FACE_IDENTITY_ARCFACE_PROVIDER_ORDER",
+            DEFAULT_ARCFACE_PROVIDER_ORDER,
+        ),
+        "face_identity_arcface_fallback_behavior": _read_choice(
+            "FACE_IDENTITY_ARCFACE_FALLBACK_BEHAVIOR",
+            default="cpu",
+            allowed={"cpu", "none"},
+        ),
     }
 
 
@@ -510,6 +542,9 @@ class Settings:
     face_identity_embedding_dimension: int
     face_identity_model_id: str
     face_identity_weights_path: str
+    face_identity_arcface_model_name: str
+    face_identity_arcface_provider_order: tuple[str, ...]
+    face_identity_arcface_fallback_behavior: str
 
     @classmethod
     def from_env(
@@ -587,4 +622,8 @@ class Settings:
             missing.append("FACE_IDENTITY_SAMPLE_FPS")
         if self.face_identity_embedding_dimension < 16:
             missing.append("FACE_IDENTITY_EMBEDDING_DIMENSION")
+        if not self.face_identity_arcface_model_name.strip():
+            missing.append("FACE_IDENTITY_ARCFACE_MODEL_NAME")
+        if not self.face_identity_arcface_provider_order:
+            missing.append("FACE_IDENTITY_ARCFACE_PROVIDER_ORDER")
         return missing

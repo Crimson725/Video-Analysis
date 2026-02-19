@@ -46,7 +46,7 @@ def _frame_payload(job_id: str) -> dict:
     }
 
 
-def test_process_video_skips_post_cv_pipelines_even_when_enabled():
+def test_process_video_runs_identity_post_pass_when_enabled():
     job_id = jobs.create_job()
 
     with (
@@ -89,11 +89,11 @@ def test_process_video_skips_post_cv_pipelines_even_when_enabled():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert set(job["result"].keys()) == {"job_id", "pipeline", "frames"}
-    mock_object_summary.assert_not_called()
-    mock_extract_tracking_frames.assert_not_called()
-    mock_face_identity.assert_not_called()
-    mock_person_fusion.assert_not_called()
+    assert {"job_id", "pipeline", "frames"}.issubset(set(job["result"].keys()))
+    mock_object_summary.assert_called_once()
+    mock_extract_tracking_frames.assert_called_once()
+    mock_face_identity.assert_called_once()
+    mock_person_fusion.assert_called_once()
 
 
 def test_process_video_result_contains_only_cv_outputs():
@@ -133,5 +133,5 @@ def test_process_video_result_contains_only_cv_outputs():
     job = jobs.get_job(job_id)
     assert job is not None
     assert job["status"] == "completed"
-    assert set(job["result"].keys()) == {"job_id", "pipeline", "frames"}
+    assert {"job_id", "pipeline", "frames"}.issubset(set(job["result"].keys()))
     assert len(job["result"]["frames"]) == 1

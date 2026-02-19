@@ -50,6 +50,9 @@ class DetectionItem(BaseModel):
     person_identity_id: str | None = None
     person_identity_source: str | None = None
     person_identity_confidence: float | None = None
+    person_identity_is_ambiguous: bool | None = None
+    object_identity_confidence: float | None = None
+    object_identity_is_ambiguous: bool | None = None
 
 
 class FaceItem(BaseModel):
@@ -328,6 +331,9 @@ class VideoObjectTrack(BaseModel):
     object_track_id: str
     label: str
     source_track_id: str
+    source_track_ids: list[str] = Field(default_factory=list)
+    identity_confidence: float | None = None
+    is_identity_ambiguous: bool = False
     confidence: ObjectTrackConfidenceSummary
     frame_span: ObjectTrackFrameSpan
     temporal_span: ObjectTrackTemporalSpan
@@ -340,6 +346,26 @@ class VideoObjectTracksResult(BaseModel):
     enabled: bool
     method: str
     tracks: list[VideoObjectTrack] = Field(default_factory=list)
+
+
+class VideoFaceIdentitiesResult(BaseModel):
+    """Video-level face identity stitching metadata."""
+
+    enabled: bool
+    model_id: str
+    backend: str
+    provider_path: list[str] = Field(default_factory=list)
+    active_provider: str | None = None
+    scene_identities: list[dict[str, Any]] = Field(default_factory=list)
+    video_identities: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class VideoPersonTracksResult(BaseModel):
+    """Video-level person identity tracks fused from object + face signals."""
+
+    enabled: bool
+    method: str
+    tracks: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ChunkedTrackSpan(BaseModel):
@@ -506,6 +532,9 @@ class JobResult(BaseModel):
     pipeline: PipelineMetadata = Field(default_factory=PipelineMetadata)
     branch_metadata: BranchExecutionMetadata | None = None
     frames: list[FrameResult]
+    video_face_identities: VideoFaceIdentitiesResult | None = None
+    video_object_tracks: VideoObjectTracksResult | None = None
+    video_person_tracks: VideoPersonTracksResult | None = None
     video_chunked_tracks: VideoChunkedTracksResult | None = None
 
 
